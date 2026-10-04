@@ -3,7 +3,7 @@
   <name>sentry_test</name>
   <version>0.0.0</version>
   <description>Temporary Odin and MCU test inputs for the first precheck.</description>
-  <maintainer email="wendyy@2476881639@qq.com">wendyy</maintainer>
+  <maintainer email="2476881639@qq.com">wendyy</maintainer>
   <license>TODO: License declaration</license>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
