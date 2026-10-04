@@ -18,7 +18,6 @@ private:
     rclcpp::Subscription<DecisionNavMsg>::SharedPtr decision_suber;
     rclcpp::Subscription<CloudMsg>::SharedPtr cloud_suber;
     rclcpp::Publisher<NavigationMsg>::SharedPtr navigation_puber;
-    rclcpp::TimerBase::SharedPtr control_timer;
     // 坐标变换接收者
     std::shared_ptr<tf2_ros::Buffer> tf_buffer;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener;
@@ -27,11 +26,8 @@ private:
     ChassisDataMsg chassis{};
     DecisionNavMsg decision{};
     CloudMsg::SharedPtr cloud;
-    uint64_t odom_count = 0, chassis_count = 0, decision_count = 0, cloud_count = 0;
-    uint64_t publish_count = 0;
     void ChassisInfoCallback(const ChassisDataMsg::SharedPtr msg);
     void OdomCallBack(const nav_msgs::msg::Odometry::SharedPtr msg);
     void DecisionCallback(DecisionNavMsg::SharedPtr msg);
     void CloudCallback(CloudMsg::SharedPtr msg);
-    void Tick();
 };

@@ -16,8 +16,6 @@ Transfer::Transfer(rclcpp::Node *node, std::shared_ptr<serial::Serial> _serial_p
 
 void Transfer::decision_callback(DecisionMsg::SharedPtr msg){
     decision = *msg;
-    RCLCPP_INFO_THROTTLE(node->get_logger(), *node->get_clock(), 1000,
-        "UART RX decision2mcu: wz=%.3f, sentry_posture=%u", msg->wz, msg->sentry_posture);
 }
 
 void Transfer::navigation_callback(NavMsg::SharedPtr msg){
@@ -31,9 +29,6 @@ void Transfer::navigation_callback(NavMsg::SharedPtr msg){
         trans_struct_uint8<ChassisControl>(chassis_control_id, control, CRCMode::crc16),
         "chassis packet"
     );
-    RCLCPP_INFO_THROTTLE(node->get_logger(), *node->get_clock(), 1000,
-        "UART RX navigation2mcu: vx=%.3f, vy=%.3f; merged wz=%.3f, sentry_posture=%u",
-        control.vx, control.vy, control.wz, control.sentry_posture);
 }
 
 void Transfer::handle_datas(const std::vector<uint8_t> &datas){
