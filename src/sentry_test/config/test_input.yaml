@@ -1,0 +1,11 @@
+/test_input_node:
+  ros__parameters:
+    publish_rate_hz: 20.0
+    # Zero translation + quaternion (0, 0, 0, 1) is the identity pose.
+    x: 0.0
+    y: 0.0
+    game_time: 1
+    sentry_posture: 3
+    chassis_vx: 1.0
+    chassis_vy: 1.0
+    chassis_wz: 1.0

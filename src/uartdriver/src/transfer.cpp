@@ -6,8 +6,35 @@ Transfer::Transfer(rclcpp::Node *node, std::shared_ptr<serial::Serial> _serial_p
 
     referee_puber = node->create_publisher<RefereeMsg>("referee_data", 10);
     chassis_puber = node->create_publisher<ChassisMsg>("chassis_data", 10);
+    decision.sentry_posture = 3;
+    navigation_suber = node->create_subscription<NavMsg>("/navigation2mcu", 10,
+        std::bind(&Transfer::navigation_callback, this, std::placeholders::_1));
+    decision_suber = node->create_subscription<DecisionMsg>("/decision2mcu", 10,
+        std::bind(&Transfer::decision_callback, this, std::placeholders::_1));
 }
 
+
+void Transfer::decision_callback(DecisionMsg::SharedPtr msg){
+    decision = *msg;
+    RCLCPP_INFO_THROTTLE(node->get_logger(), *node->get_clock(), 1000,
+        "UART RX decision2mcu: wz=%.3f, sentry_posture=%u", msg->wz, msg->sentry_posture);
+}
+
+void Transfer::navigation_callback(NavMsg::SharedPtr msg){
+    ChassisControl control{};
+    control.vx = msg->vx;
+    control.vy = msg->vy;
+    control.wz = decision.wz;
+    control.sentry_posture = decision.sentry_posture;
+
+    send_serial_packet(
+        trans_struct_uint8<ChassisControl>(chassis_control_id, control, CRCMode::crc16),
+        "chassis packet"
+    );
+    RCLCPP_INFO_THROTTLE(node->get_logger(), *node->get_clock(), 1000,
+        "UART RX navigation2mcu: vx=%.3f, vy=%.3f; merged wz=%.3f, sentry_posture=%u",
+        control.vx, control.vy, control.wz, control.sentry_posture);
+}
 
 void Transfer::handle_datas(const std::vector<uint8_t> &datas){
     if(datas[1] == serial_referee_id){

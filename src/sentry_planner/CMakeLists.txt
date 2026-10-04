@@ -19,6 +19,7 @@ find_package(OpenCV REQUIRED)
 find_package(rm_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(tf2_eigen REQUIRED)
 find_package(ament_cmake REQUIRED)
@@ -52,6 +53,7 @@ ament_target_dependencies(
     rm_msgs
     tf2_ros
     nav_msgs
+    sensor_msgs
     std_msgs
     tf2_eigen
     pcl_conversions

@@ -58,6 +58,19 @@ def generate_launch_description():
         ],
     )
 
+    test_config = os.path.join(
+        get_package_share_directory("sentry_test"),
+        "config",
+        "test_input.yaml",
+    )
+    test_input_node = Node(
+        package='sentry_test',
+        executable='test_input_node',
+        name='test_input_node',
+        parameters=[test_config],
+        output='both',
+    )
+
     sentry_decision = Node(
         package='sentry_decision_sys',
         executable='sentry_decision_node',
@@ -68,6 +81,8 @@ def generate_launch_description():
     return LaunchDescription([
         # 机器人固定坐标变换发布节点
         robot_state_publisher,
+        # TEST: 模拟 Odin 和电控输入
+        test_input_node,
         # USB驱动
         # uart_driver,
         # Odin1驱动

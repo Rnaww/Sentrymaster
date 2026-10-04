@@ -22,6 +22,10 @@ void UARTDriverNode::init_node(){
     declare_parameter("possible_ids", std::vector<int>());
     auto int_ids = get_parameter("possible_ids").as_integer_array();
 
+    RCLCPP_INFO(get_logger(), "UART YAML: serial_number=%s, serial_name=%s, baud_rate=%d, read_buffer_size=%d, possible_ids=%s",
+        serial_number.c_str(), serial_name_pre.c_str(), baud_rate, read_buffer_size,
+        get_parameter("possible_ids").value_to_string().c_str());
+
     // info_log(int_ids.size());
     for (auto int_id : int_ids){
         uint8_t id = static_cast<uint8_t>(int_id);
