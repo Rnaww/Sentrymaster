@@ -139,15 +139,15 @@
       # 时间权重, 高: 强调快速 低: 强调平滑 
       WeightT:                    1.0
       # 惩罚权重
-      ChiVec:                     [100.0, 1.0, 0.0, 0.0, 0.0]    
+      ChiVec:                     [1000000.0, 1.0, 0.0, 0.0, 0.0]
       # ESDF距离代价触发阈值
-      DistanceCostThreshold:       0.3
+      DistanceCostThreshold:       0.1
       # ESDF距离代价权重
-      DistanceCostWeight:          10.0
+      DistanceCostWeight:          50.0
       # 平滑因子
-      SmoothingEps:               1.2
+      SmoothingEps:               0.001
       # 路径优化积分分辨率
-      IntegralIntervs:            24
+      IntegralIntervs:            128
       # 收敛阈值
       RelCostTol:                 1e-3
 

@@ -93,10 +93,15 @@ class SimulatorNode(Node):
         if self.physics == 'gazebo':
             if self.gazebo_odom is None: return
             stamp = self.gazebo_odom.header.stamp
-            self.clock_time = stamp.sec+stamp.nanosec/1e9
+            stamp_time = stamp.sec+stamp.nanosec/1e9
+            if stamp_time <= self.clock_time: return
+            dt = stamp_time-self.clock_time
+            self.clock_time = stamp_time
             p = self.gazebo_odom.pose.pose.position
             q = self.gazebo_odom.pose.pose.orientation
+            self.distance += math.hypot(p.x-self.x,p.y-self.y)
             self.x,self.y = p.x,p.y
+            if not self.free(self.x,self.y): self.collisions += 1
             self.yaw = math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z))
         else:
             self.clock_time += dt
@@ -148,11 +153,16 @@ class SimulatorNode(Node):
         odom.header.stamp.sec = int(self.clock_time)
         odom.header.stamp.nanosec = int((self.clock_time%1)*1e9)
         vehicle_q = (0,0,math.sin(self.yaw/2),math.cos(self.yaw/2))
+        vehicle_z = self.ground(self.x,self.y)
+        if self.physics == 'gazebo':
+            actual_q = self.gazebo_odom.pose.pose.orientation
+            vehicle_q = (actual_q.x,actual_q.y,actual_q.z,actual_q.w)
+            vehicle_z = self.gazebo_odom.pose.pose.position.z
         sensor_q = multiply(vehicle_q,FIXED_ROTATION)
         offset = rotate(vehicle_q,FIXED_TRANSLATION)
         odom.pose.pose.position.x = self.x+offset[0]
         odom.pose.pose.position.y = self.y+offset[1]
-        odom.pose.pose.position.z = self.ground(self.x,self.y)+offset[2]
+        odom.pose.pose.position.z = vehicle_z+offset[2]
         q = odom.pose.pose.orientation
         q.x,q.y,q.z,q.w = sensor_q
         self.odom_puber.publish(odom)
@@ -161,7 +171,11 @@ class SimulatorNode(Node):
         referee.sentry_posture = self.posture
         self.referee_puber.publish(referee)
         chassis = ChassisData()
-        chassis.vx,chassis.vy = cmd.linear.x*1000,cmd.linear.y*1000
+        if self.physics == 'gazebo':
+            actual = self.gazebo_odom.twist.twist.linear
+            chassis.vx,chassis.vy = actual.x*1000,actual.y*1000
+        else:
+            chassis.vx,chassis.vy = cmd.linear.x*1000,cmd.linear.y*1000
         chassis.wz = math.degrees(actual_wz)
         self.chassis_puber.publish(chassis)
         h = self.ground(self.x,self.y)

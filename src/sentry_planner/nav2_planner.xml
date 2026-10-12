@@ -1,0 +1,5 @@
+<library path="sentry_nav2_planner">
+    <class name="SentryMincoPlanner" type="SentryMincoPlanner" base_class_type="nav2_core::GlobalPlanner">
+        <description>Legacy 701 A*, SFC and MINCO planner</description>
+    </class>
+</library>

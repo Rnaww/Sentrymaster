@@ -1,40 +1,48 @@
 #pragma once
 #include "common.h"
+#include <rclcpp_action/rclcpp_action.hpp>
+#include <nav2_msgs/action/navigate_to_pose.hpp>
+#include <nav2_msgs/msg/speed_limit.hpp>
+#include "rm_msgs/msg/navigation_status.hpp"
 #include <nav_msgs/msg/path.hpp>
 
-class PlanningCore;
-#include "rm_msgs/msg/navigation_status.hpp"
+class TerrainSpeed;
 
-class SentryPlannerNode : public rclcpp::Node {
+class SentryPlannerNode : public rclcpp::Node{
 public:
     SentryPlannerNode(std::string name);
-
 private:
+    using Navigate = nav2_msgs::action::NavigateToPose;
+    using GoalHandle = rclcpp_action::ClientGoalHandle<Navigate>;
     using StatusMsg = rm_msgs::msg::NavigationStatus;
-    std::shared_ptr<PlanningCore> planning_core;
+    std::shared_ptr<TerrainSpeed> terrain_speed;
     std::shared_ptr<tf2_ros::Buffer> tf_buffer;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener;
-    std::shared_ptr<tf2_ros::TransformBroadcaster> tf_puber;
-    rclcpp::Subscription<OdomMsg>::SharedPtr odom_suber;
-    rclcpp::Subscription<ChassisDataMsg>::SharedPtr chassis_data_suber;
+    Eigen::Vector3d position = Eigen::Vector3d::Zero();
+    nav_msgs::msg::Path path;
+    rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_suber;
+    rclcpp_action::Client<Navigate>::SharedPtr nav_client;
     rclcpp::Subscription<DecisionNavMsg>::SharedPtr decision_suber;
-    rclcpp::Subscription<PcdMsg>::SharedPtr cloud_suber;
+    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr velocity_suber;
+    rclcpp::Subscription<OdomMsg>::SharedPtr odom_suber;
     rclcpp::Publisher<ChassisControlMsg>::SharedPtr navigation_puber;
     rclcpp::Publisher<StatusMsg>::SharedPtr status_puber;
-    rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_puber;
+    rclcpp::Publisher<nav2_msgs::msg::SpeedLimit>::SharedPtr speed_puber;
+    rclcpp::Publisher<BoolMsg>::SharedPtr mode_puber;
     rclcpp::TimerBase::SharedPtr control_timer;
     DecisionNavMsg decision{};
-    OdomMsg odom{};
-    ChassisDataMsg chassis{};
-    PcdMsg::SharedPtr cloud;
-    Eigen::Vector3d current_odom_pos_2d = Eigen::Vector3d::Zero();
-    double yaw = 0, last_odom_time = -1, last_command_time = -1;
-    double odom_timeout, command_timeout;
-    uint8_t last_state = 255;
-    void OdomCallBack(OdomMsg::SharedPtr msg);
-    void ChassisInfoCallback(ChassisDataMsg::SharedPtr msg);
+    geometry_msgs::msg::Twist velocity{};
+    GoalHandle::SharedPtr goal_handle;
+    double command_timeout, odom_timeout;
+    double last_command = -1, last_odom = -1, last_velocity = -1;
+    bool pending = false, pending_cancel = false, need_goal = false;
+    uint64_t active_id = 0, cancel_id = 0;
+    uint64_t generation = 0;
+    uint8_t state = StatusMsg::IDLE;
+    std::string reason = "waiting";
     void DecisionCallback(DecisionNavMsg::SharedPtr msg);
-    void CloudCallback(PcdMsg::SharedPtr msg);
+    void send_goal(uint64_t id);
+    void cancel_goal();
     void control_cbk();
-    void pub_status(uint8_t state, const std::string &reason);
+    void pub_status(uint8_t value, const std::string &text);
 };

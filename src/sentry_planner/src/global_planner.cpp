@@ -459,9 +459,9 @@ bool GlobalPathPlanner::GetPath(std::vector<Eigen::Vector3d>& path, const Eigen:
     startPtr->fScore = CalcHeu(startPtr, endPtr);
 
     // 使用优先队列, 会自动比较, 将最优的路径放入top
-    std::priority_queue<GridNodePtr, std::vector<GridNodePtr>, Compare> empty_lists;
+    std::priority_queue<OpenGridNode, std::vector<OpenGridNode>, Compare> empty_lists;
     open_lists_.swap(empty_lists);
-    open_lists_.push(startPtr);
+    open_lists_.push({startPtr, startPtr->fScore});
 
     GridNodePtr currentPtr = NULL;
     GridNodePtr neighborPtr = NULL;
@@ -470,9 +470,10 @@ bool GlobalPathPlanner::GetPath(std::vector<Eigen::Vector3d>& path, const Eigen:
 
     bool plan_success = false;
     while (!open_lists_.empty()) {
-        currentPtr = open_lists_.top();
-        currentPtr->id = -1;  // add current node in close_list
+        currentPtr = open_lists_.top().ptr;
         open_lists_.pop();
+        if (currentPtr->id == -1) continue;
+        currentPtr->id = -1;  // add current node in close_list
         
         if (currentPtr->index == opt_end_point_index) {
             terminatePtr_ = currentPtr;
@@ -485,7 +486,7 @@ bool GlobalPathPlanner::GetPath(std::vector<Eigen::Vector3d>& path, const Eigen:
         for (int i = 0; i < neighbors.size(); i++) {
             neighborPtr = neighbors[i];
             // 实际代价
-            double gh = currentPtr->gScore;
+            double gh = currentPtr->gScore + (currentPtr->index-neighborPtr->index).cast<double>().norm();
             // 实际代价 + 预估代价(启发函数计算)
             double heu = CalcHeu(neighborPtr, endPtr);
             double fh = gh + heu;
@@ -502,7 +503,7 @@ bool GlobalPathPlanner::GetPath(std::vector<Eigen::Vector3d>& path, const Eigen:
                 neighborPtr->gScore = gh;
                 neighborPtr->fScore = fh;
                 neighborPtr->cameFrom = currentPtr;
-                open_lists_.push(neighborPtr);
+                open_lists_.push({neighborPtr, neighborPtr->fScore});
                 
                 if (!terminatePtr_){
                     terminatePtr_ = neighborPtr;
@@ -514,6 +515,7 @@ bool GlobalPathPlanner::GetPath(std::vector<Eigen::Vector3d>& path, const Eigen:
                     neighborPtr->gScore = gh;
                     neighborPtr->fScore = fh;
                     neighborPtr->cameFrom = currentPtr;
+                    open_lists_.push({neighborPtr, neighborPtr->fScore});
                 }
             } else {
                 continue;

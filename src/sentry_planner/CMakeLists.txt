@@ -23,6 +23,10 @@ find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(tf2_eigen REQUIRED)
 find_package(ament_cmake REQUIRED)
+find_package(rclcpp_action REQUIRED)
+find_package(nav2_core REQUIRED)
+find_package(nav2_msgs REQUIRED)
+find_package(pluginlib REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
@@ -38,6 +42,7 @@ set(SRC_FILES
 # 添加库文件
 set(LIB_NAME ${PROJECT_NAME}_lib)
 add_library (${LIB_NAME} ${SRC_FILES})
+set_target_properties(${LIB_NAME} PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # 添加include文件
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include ${OMPL_INCLUDE_DIRS})
@@ -49,6 +54,8 @@ ament_target_dependencies(
     PCL
     Boost
     rclcpp
+    rclcpp_action
+    nav2_msgs
     message_filters
     Eigen3
     OpenCV
@@ -79,5 +86,11 @@ install(TARGETS odin_odometry_node DESTINATION lib/${PROJECT_NAME})
 # 安装头文件 参数文件 启动脚本
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config launch map DESTINATION share/${PROJECT_NAME})
+
+add_library(sentry_nav2_planner SHARED src/nav2_planner.cpp)
+ament_target_dependencies(sentry_nav2_planner nav2_core pluginlib rclcpp nav_msgs tf2_ros)
+target_link_libraries(sentry_nav2_planner ${LIB_NAME})
+pluginlib_export_plugin_description_file(nav2_core nav2_planner.xml)
+install(TARGETS sentry_nav2_planner LIBRARY DESTINATION lib)
 
 ament_package()

@@ -1,0 +1,49 @@
+{
+  "physics": "kinematic",
+  "score": 525.0,
+  "events": [
+    {
+      "task": "supply",
+      "time": 30.53,
+      "score": 30.0,
+      "spin_bonus": 0
+    },
+    {
+      "task": "central",
+      "time": 72.25,
+      "score": 180.0,
+      "spin_bonus": 20
+    },
+    {
+      "task": "supply",
+      "time": 99.88,
+      "score": 30.0,
+      "spin_bonus": 0
+    },
+    {
+      "task": "trapezoid",
+      "time": 153.49,
+      "score": 105.0,
+      "spin_bonus": 20
+    },
+    {
+      "task": "fortress",
+      "time": 227.81,
+      "score": 150.0,
+      "spin_bonus": 20
+    },
+    {
+      "task": "supply",
+      "time": 294.39,
+      "score": 30.0,
+      "spin_bonus": 0
+    }
+  ],
+  "distance": 112.78,
+  "collision_samples": 0,
+  "final_pose": [
+    15.459946911426318,
+    1.768272523895367
+  ],
+  "scoring_posture_seconds": 90.58934806595789
+}

@@ -9,12 +9,14 @@
 class PlanningCore{
 public:
     std::string last_error;
+    rclcpp::Node *node;
+    std::vector<Eigen::Vector3d> fallback_route;
     std::shared_ptr<Config> config;
     std::shared_ptr<GlobalPathPlanner> global_path_planner;
     std::shared_ptr<SFCgenerator> sfc_generator;
     std::shared_ptr<LocalOptimizer> local_optimizer;
 
-    PlanningCore(rclcpp::Node *node){
+    PlanningCore(rclcpp::Node *node):node(node){
         config = std::make_shared<Config>(node);
         global_path_planner = std::make_shared<GlobalPathPlanner>(node);
         sfc_generator = std::make_shared<SFCgenerator>(node);
@@ -38,6 +40,7 @@ public:
 
     bool plan(Eigen::Vector3d start, Eigen::Vector3d goal, bool is_cross){
         local_optimizer->clear_traj();
+        fallback_route.clear();
         start.z() = 0.05;
         goal.z() = 0.05;
         if (is_cross) global_path_planner->setObsCross();
@@ -46,9 +49,13 @@ public:
         std::vector<Eigen::Vector3d> route;
         if (!global_path_planner->GetPath(route, start, goal)){ last_error = "A* failed"; return false; }
         if ((route.back()-goal).head<2>().norm() > 0.2){ last_error = "partial A* path"; return false; }
-        route.front() = start;
-        route.back() = goal;
+        route.insert(route.begin(), global_path_planner->gridIndex2coord(global_path_planner->coord2gridIndex(start)));
+        route.insert(route.begin(), start);
+        route.push_back(goal);
         for (auto &point : route) point.z() = 0.05;
+        for (size_t i = 1; i < route.size(); i++){
+            if (!segmentFree(route[i-1], route[i])){ last_error = "A* segment outside free map"; return false; }
+        }
         std::vector<Eigen::Vector3d> pc, nearby_pc;
         global_path_planner->getOccupyVector(pc);
         Eigen::Vector3d low = start, high = start;
@@ -59,7 +66,7 @@ public:
         for (auto &point : pc){
             if (point.x() > low.x()-2 && point.x() < high.x()+2 &&
                 point.y() > low.y()-2 && point.y() < high.y()+2){
-                // 单层障碍点位于 z 边界会被旧 SFC 严格不等式过滤；在层内表示障碍柱。
+                // 用网格角点表示障碍格的范围，不能只检查障碍中心。
                 double half_cell = global_path_planner->resolution_*0.5 + 0.01;
                 for (double dx : {-half_cell, half_cell}){
                     for (double dy : {-half_cell, half_cell}){
@@ -72,8 +79,17 @@ public:
         global_path_planner->updateESDF(start, nearby_pc);
         std::vector<Eigen::MatrixX4d> SFCs;
         sfc_generator->getSFC(route, nearby_pc, SFCs);
-        if (SFCs.empty()){ last_error = "empty SFC"; return false; }
-        if (!local_optimizer->get_trajectory(route, SFCs, global_path_planner->esdf)){ last_error = "MINCO failed"; return false; }
+        if (SFCs.empty()) return useFallback(route, "empty SFC");
+        // 地面导航使用走廊在 z=0.05 的平面截面，避免三维优化从障碍柱上方绕过。
+        for (auto &poly : SFCs){
+            for (int i = 0; i < poly.rows(); i++){
+                if (std::hypot(poly(i,0),poly(i,1)) > 1e-7){
+                    poly(i,3) += 0.05*poly(i,2);
+                    poly(i,2) = 0;
+                }
+            }
+        }
+        if (!local_optimizer->get_trajectory(route, SFCs, global_path_planner->esdf)) return useFallback(route, "MINCO failed");
         // 优化成功后检查整条曲线，失败时不执行未经检查的路径。
         auto traj = local_optimizer->get_traj();
         Eigen::Vector3d last = start;
@@ -82,19 +98,55 @@ public:
         for (int i = 1; i <= n; i++){
             Eigen::Vector3d point = traj->getPos(traj->getTotalDuration()*i/n);
             if (!point.allFinite() || !segmentFree(last, point)){
-                last_error = "curve outside free map at " + std::to_string(point.x()) + "," + std::to_string(point.y());
-                local_optimizer->clear_traj();
-                return false;
+                last_error = "curve outside free map at " + std::to_string(point.x()) + "," + std::to_string(point.y()) + ",z=" + std::to_string(point.z());
+                return useFallback(route, last_error);
             }
             last = point;
         }
         return true;
     }
 
+    bool useFallback(const std::vector<Eigen::Vector3d> &route, const std::string &reason){
+        local_optimizer->clear_traj();
+        fallback_route = route;
+        RCLCPP_WARN_THROTTLE(node->get_logger(), *node->get_clock(), 2000, "Use checked A* path: %s", reason.c_str());
+        return true;
+    }
+
+    Eigen::Vector3d getDirection(){
+        if (fallback_route.empty()) return local_optimizer->get_v_directioin();
+        Eigen::Vector3d direction = Eigen::Vector3d::Zero();
+        for (auto &point : fallback_route){
+            direction = point-fallback_route.front();
+            if (direction.head<2>().norm() >= 0.1) break;
+        }
+        return direction;
+    }
+
     nav_msgs::msg::Path getPath(const rclcpp::Time &stamp){
         nav_msgs::msg::Path path;
         path.header.frame_id = "map";
         path.header.stamp = stamp;
+        if (!fallback_route.empty()){
+            for (size_t i = 1; i < fallback_route.size(); i++){
+                auto a = fallback_route[i-1], b = fallback_route[i];
+                int n = std::max(1, static_cast<int>(std::ceil((b-a).norm()/0.05)));
+                for (int j = 0; j < n; j++){
+                    auto point = a+(b-a)*static_cast<double>(j)/n;
+                    geometry_msgs::msg::PoseStamped pose;
+                    pose.header = path.header;
+                    pose.pose.position.x = point.x();
+                    pose.pose.position.y = point.y();
+                    pose.pose.orientation.w = 1;
+                    path.poses.push_back(pose);
+                }
+            }
+            auto pose = path.poses.back();
+            pose.pose.position.x = fallback_route.back().x();
+            pose.pose.position.y = fallback_route.back().y();
+            path.poses.push_back(pose);
+            return path;
+        }
         if (!local_optimizer->has_traj()) return path;
         auto traj = local_optimizer->get_traj();
         int n = std::max(2, static_cast<int>(std::ceil(traj->getTotalDuration()/0.01)));

@@ -16,6 +16,7 @@ class Scoring:
         self.rough_crossed = False
         self.slope_entered = False
         self.slope_crossed = False
+        self.in_supply = False
         self.spin_reward = False
         self.spin_valid = True
         self.scoring_time = 0
@@ -26,6 +27,11 @@ class Scoring:
         self.last_time = t
         if posture == 1: self.scoring_time += dt
         self.excursion = max(self.excursion, math.dist((x,y), self.last_supply))
+        in_supply = math.dist((x,y), POINTS['supply']) <= 0.6
+        if in_supply and not self.in_supply:
+            self.spin_reward = True
+            self.spin_valid = True
+        self.in_supply = in_supply
         traveling = speed > 0.05 and all(math.dist((x,y), point) > 0.6 for point in POINTS.values())
         if self.spin_reward and traveling and not terrain_exception and abs(wz) < math.radians(30): self.spin_valid = False
         if math.dist((x,y), (15.15,2.15)) < 0.6: self.rough_entered = True

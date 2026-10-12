@@ -21,7 +21,7 @@ private:
     // 静态欧几里德距离场
     double* static_esdf;
     // A*搜索开集
-    std::priority_queue<GridNodePtr, std::vector<GridNodePtr>, Compare> open_lists_;
+    std::priority_queue<OpenGridNode, std::vector<OpenGridNode>, Compare> open_lists_;
 
     // 障碍物判定参数
     double obs_low, obs_high, gray_low, gray_high;
@@ -113,6 +113,23 @@ public:
         memset(static_esdf, 0, esdf_size * sizeof(double));
         memset(esdf, 0, esdf_size * sizeof(double));
         buildESDF();
+    }
+
+    ~GlobalPathPlanner(){
+        for (int x = 0; x < GL_SIZE_(0); x++){
+            for (int y = 0; y < GL_SIZE_(1); y++){
+                for (int z = 0; z < GL_SIZE_(2); z++) delete GridNodeMap_[x][y][z];
+                delete[] GridNodeMap_[x][y];
+            }
+            delete[] GridNodeMap_[x];
+        }
+        delete[] GridNodeMap_;
+        delete[] binary_grid_map;
+        delete[] gray_grid_map;
+        delete[] cross_grid_map;
+        delete[] obs_grid_map;
+        delete[] static_esdf;
+        delete[] esdf;
     }
 
     // 二值图片转换成网格地图障碍物

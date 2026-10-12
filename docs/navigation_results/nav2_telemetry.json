@@ -1,0 +1,39 @@
+{
+  "nav_hz": 100.2,
+  "max_speed_mmps": 2077.09,
+  "max_abs_wz_degps": 0.0,
+  "sim_interval": [
+    75.0,
+    100.0
+  ],
+  "topic_connections": {
+    "/odin1/odometry_highfreq": {
+      "publishers": 1,
+      "subscribers": 1
+    },
+    "/navigation_odom": {
+      "publishers": 1,
+      "subscribers": 5
+    },
+    "/referee_data": {
+      "publishers": 1,
+      "subscribers": 1
+    },
+    "/chassis_data": {
+      "publishers": 1,
+      "subscribers": 1
+    },
+    "/decision2nav": {
+      "publishers": 1,
+      "subscribers": 1
+    },
+    "/decision2mcu": {
+      "publishers": 1,
+      "subscribers": 2
+    },
+    "/navigation2mcu": {
+      "publishers": 1,
+      "subscribers": 2
+    }
+  }
+}
