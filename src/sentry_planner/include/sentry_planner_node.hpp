@@ -1,33 +1,40 @@
+#pragma once
 #include "common.h"
-#include "sensor_msgs/msg/point_cloud2.hpp"
-#include "rm_msgs/msg/decision_nav_cmd.hpp"
-#include "rm_msgs/msg/navigation_mcu_cmd.hpp"
+#include <nav_msgs/msg/path.hpp>
+
+class PlanningCore;
+#include "rm_msgs/msg/navigation_status.hpp"
 
 class SentryPlannerNode : public rclcpp::Node {
 public:
     SentryPlannerNode(std::string name);
 
 private:
-    using DecisionNavMsg = rm_msgs::msg::DecisionNavCmd;
-    using NavigationMsg = rm_msgs::msg::NavigationMcuCmd;
-    using CloudMsg = sensor_msgs::msg::PointCloud2;
-    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_suber;
-
-    rclcpp::Subscription<ChassisDataMsg>::SharedPtr chassis_data_suber;
-
-    rclcpp::Subscription<DecisionNavMsg>::SharedPtr decision_suber;
-    rclcpp::Subscription<CloudMsg>::SharedPtr cloud_suber;
-    rclcpp::Publisher<NavigationMsg>::SharedPtr navigation_puber;
-    // 坐标变换接收者
+    using StatusMsg = rm_msgs::msg::NavigationStatus;
+    std::shared_ptr<PlanningCore> planning_core;
     std::shared_ptr<tf2_ros::Buffer> tf_buffer;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener;
-
+    std::shared_ptr<tf2_ros::TransformBroadcaster> tf_puber;
+    rclcpp::Subscription<OdomMsg>::SharedPtr odom_suber;
+    rclcpp::Subscription<ChassisDataMsg>::SharedPtr chassis_data_suber;
+    rclcpp::Subscription<DecisionNavMsg>::SharedPtr decision_suber;
+    rclcpp::Subscription<PcdMsg>::SharedPtr cloud_suber;
+    rclcpp::Publisher<ChassisControlMsg>::SharedPtr navigation_puber;
+    rclcpp::Publisher<StatusMsg>::SharedPtr status_puber;
+    rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_puber;
+    rclcpp::TimerBase::SharedPtr control_timer;
+    DecisionNavMsg decision{};
     OdomMsg odom{};
     ChassisDataMsg chassis{};
-    DecisionNavMsg decision{};
-    CloudMsg::SharedPtr cloud;
-    void ChassisInfoCallback(const ChassisDataMsg::SharedPtr msg);
-    void OdomCallBack(const nav_msgs::msg::Odometry::SharedPtr msg);
+    PcdMsg::SharedPtr cloud;
+    Eigen::Vector3d current_odom_pos_2d = Eigen::Vector3d::Zero();
+    double yaw = 0, last_odom_time = -1, last_command_time = -1;
+    double odom_timeout, command_timeout;
+    uint8_t last_state = 255;
+    void OdomCallBack(OdomMsg::SharedPtr msg);
+    void ChassisInfoCallback(ChassisDataMsg::SharedPtr msg);
     void DecisionCallback(DecisionNavMsg::SharedPtr msg);
-    void CloudCallback(CloudMsg::SharedPtr msg);
+    void CloudCallback(PcdMsg::SharedPtr msg);
+    void control_cbk();
+    void pub_status(uint8_t state, const std::string &reason);
 };

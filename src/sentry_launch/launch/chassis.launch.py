@@ -65,6 +65,13 @@ def generate_launch_description():
         output='both',
     )
 
+    odin_odometry = Node(
+        package='sentry_planner',
+        executable='odin_odometry_node',
+        name='odin_odometry_node',
+        output='screen',
+    )
+
     return LaunchDescription([
         # 机器人固定坐标变换发布节点
         robot_state_publisher,
@@ -73,6 +80,7 @@ def generate_launch_description():
         # Odin1驱动
         # odin1,
         # 导航节点
+        odin_odometry,
         sentry_planner,
         # 决策节点
         sentry_decision,

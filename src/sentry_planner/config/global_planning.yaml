@@ -1,2 +1,155 @@
 /sentry_planner_node:
-  ros__parameters: {}
+  ros__parameters:    
+    # 障碍物点云缓冲帧数
+    obs_cloud_buffer_frame:     20
+    # 规划帧率
+    rate:                       100
+    # 输入有效期，单位秒
+    odom_timeout:               0.5
+    command_timeout:            0.5
+    # 到达距离
+    reach_thresh:               0.25
+    # 减速距离
+    end_dis:                    0.5
+    # 减速系数
+    slow_down_pow:              2.0
+    # 移动小陀螺前馈系数
+    rotate_feedforward:         0.62
+    # 退打距离
+    back_distance:              1.5
+
+    # 地图范围
+    MapBound:                   [-25.0, 25.0, -25.0, 25.0, 0.0, 0.1]    
+    # 车体大小
+    vehicle_size:                0.8
+    # 感知范围半边长, 中心到感知边界的距离
+    perception_size:             2.5
+
+    # 全局路径规划器参数
+    globalPlanner:
+      # 地图路径
+      PreMapPath:                 '701_navigation.png'
+      PreCrossPath:               '701_navigation.png'
+      PreDeepPath:                'new_701_deep.png'
+
+      # PreMapPath:                 'src/sentry_planner/map/701_model/new_701_binary.png'
+      # PreCrossPath:               'src/sentry_planner/map/701_model/new_701_binary_cross.png'
+      # PreDeepPath:                'src/sentry_planner/map/701_model/new_701_deep.png'
+
+      # 地图分辨率
+      resolution:                 0.1
+      # 障碍物点云判定高度
+      obs_low:                    0.25
+      obs_high:                   0.6
+  
+      # 灰度图高度范围
+      gray_low:                   0.0
+      gray_high:                  0.8
+
+      # 灰度图高度范围
+      # gray_low:                   0.0
+      # gray_high:                  0.8
+
+      # 点云->地图膨胀系数
+      dilate_radius:               0.35
+      # ESDF局部更新包围框半边长
+      esdf_update_box_half_size:   4.0
+      # ESDF搜索半径
+      esdf_search_radius:          0.25
+      # 最小截取路径长度
+      interupt_path_min_length:    3.0
+      # 车体像素边长大小
+      robot_pixel_size:            4
+      # 退打目标点距离当前点的最小网格数量
+      back_goal_search_grid_num:    10
+
+    # 底盘朝向控制器参数
+    chassisDirectionController:
+      Kp: 2.0
+      Ki: 0.0
+      Kd: 0.6
+      dt: 0.01
+      max_wz: 1200.0
+      reach_thresh: 0.025
+
+    # 安全走廊生成器参数
+    SFCgenerator:
+      progress: 5.0
+      range: 1.0
+      eps: 1e-4
+      # SFC合并时二维截面的最小重叠面积
+      min_overlap_area: 0.001
+
+    # 末端速度跟踪器参数
+    velocityTracker:
+      # 采样频率
+      dt: 0.005
+      # 跟踪器平滑因子
+      tracker_coef: 1e5
+      # 最大离散加速度大小
+      max_dv: 5e5
+      # 平面速度最大加速度 mm/s^2, 用于限制重规划后的速度突变
+      planar_max_acc: 50000.0
+      # 平面速度低通滤波截止频率 Hz, 用于削弱小幅抖动
+      planar_lpf_hz: 20.0
+      # 平面速度停靠死区 mm/s
+      planar_stop_speed: 30.0
+
+      # 变速小陀螺变速角频率
+      omega: 4.71239   # 1.5 pi
+      # 变速小陀螺偏移
+      offset: 1000.0
+      # 变速小陀螺幅值
+      size: 150.0
+
+      # 慢速变速小陀螺偏移
+      slow_offset: 700.0
+      # 慢速变速小陀螺幅值
+      slow_size: 0.0
+
+      # 高斯滤波参数
+      sigma: 0.1
+      window_size: 20
+      pre_hz: 1.5      
+
+    localOptimizer:
+      # 最大飞行速度
+      MaxVelMag:                  3.5
+      # 最大角速度
+      MaxBdrMag:                  4.0
+      # 最大倾斜角度
+      MaxTiltAngle:               0.1  
+      # 最小推力
+      MinThrust:                  0.0   
+      # 最大推力
+      MaxThrust:                  400.0    
+      # 车体质量
+      VehicleMass:                25.6
+      # 重力加速度
+      GravAcc:                    9.8    
+      # 水平阻力系数
+      HorizDrag:                  0.70    
+      # 垂直阻力系数
+      VertDrag:                   0.80    
+      # 寄生阻力系数
+      ParasDrag:                  0.01    
+      # 速度平滑因子, 防止零值时候出现断点
+      SpeedEps:                   0.0001   
+
+      # 时间权重, 高: 强调快速 低: 强调平滑 
+      WeightT:                    1.0
+      # 惩罚权重
+      ChiVec:                     [100.0, 1.0, 0.0, 0.0, 0.0]    
+      # ESDF距离代价触发阈值
+      DistanceCostThreshold:       0.3
+      # ESDF距离代价权重
+      DistanceCostWeight:          10.0
+      # 平滑因子
+      SmoothingEps:               1.2
+      # 路径优化积分分辨率
+      IntegralIntervs:            24
+      # 收敛阈值
+      RelCostTol:                 1e-3
+
+
+    

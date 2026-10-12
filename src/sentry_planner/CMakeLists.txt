@@ -29,8 +29,10 @@ find_package(visualization_msgs REQUIRED)
 find_package(Boost REQUIRED COMPONENTS filesystem system serialization thread date_time regex timer chrono)
 
 # 查找当前目录及子目录中的所有.cpp文件
-file(GLOB_RECURSE SRC_FILES 
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp 
+set(SRC_FILES
+  src/sentry_planner_node.cpp
+  src/global_planner.cpp
+  src/local_optimizer.cpp
 )
 
 # 添加库文件
@@ -38,7 +40,7 @@ set(LIB_NAME ${PROJECT_NAME}_lib)
 add_library (${LIB_NAME} ${SRC_FILES})
 
 # 添加include文件
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include ${OMPL_INCLUDE_DIRS})
 
 # 添加库依赖
 ament_target_dependencies(
@@ -65,9 +67,14 @@ target_link_libraries(${LIB_NAME} ${OMPL_LIBRARIES} fmt)
 
 # 生成一个可执行文件来封装库 保证launch可以使用Node调用节点
 set(EXE_NAME ${PROJECT_NAME}_node)
-add_executable(${EXE_NAME} ${SRC_FILES})
+add_executable(${EXE_NAME} src/main.cpp)
 target_link_libraries(${EXE_NAME} ${LIB_NAME})
 install(TARGETS ${EXE_NAME} DESTINATION lib/${PROJECT_NAME})
+
+add_executable(odin_odometry_node src/odin_odometry_node.cpp)
+ament_target_dependencies(odin_odometry_node rclcpp tf2 tf2_ros tf2_eigen tf2_geometry_msgs nav_msgs rm_msgs pcl_conversions)
+target_link_libraries(odin_odometry_node ${LIB_NAME})
+install(TARGETS odin_odometry_node DESTINATION lib/${PROJECT_NAME})
 
 # 安装头文件 参数文件 启动脚本
 install(DIRECTORY include/ DESTINATION include)

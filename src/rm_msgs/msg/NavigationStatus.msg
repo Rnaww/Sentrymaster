@@ -1,0 +1,9 @@
+uint8 IDLE=0
+uint8 RUNNING=1
+uint8 SUCCEEDED=2
+uint8 FAILED=3
+uint8 CANCELED=4
+float32 aim_x
+float32 aim_y
+uint8 state
+string reason
