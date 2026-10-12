@@ -1,8 +1,10 @@
 #include "sentry_planner_node.hpp"
 #include "planning_core.hpp"
+#include "terrain_speed.hpp"
 
 SentryPlannerNode::SentryPlannerNode(std::string name):Node(name){
     planning_core = std::make_shared<PlanningCore>(this);
+    terrain_speed = std::make_shared<TerrainSpeed>(this);
     odom_timeout = declare_parameter("odom_timeout", 0.5);
     command_timeout = declare_parameter("command_timeout", 0.5);
     tf_buffer = std::make_shared<tf2_ros::Buffer>(get_clock());
@@ -92,16 +94,17 @@ void SentryPlannerNode::control_cbk(){
             pub_status(StatusMsg::SUCCEEDED, "reached");
         }else if (planning_core->plan(current_odom_pos_2d, goal, decision.is_cross)){
             // 沿用旧前瞻方向和末端减速。MINCO 时标不作为执行时标。
-            Eigen::Vector3d map_v = planning_core->local_optimizer->get_v_directioin();
+            Eigen::Vector3d map_v = planning_core->getDirection();
             if (map_v.allFinite() && map_v.head<2>().norm() > 1e-6){
-                double new_spd = std::min(3500.0, static_cast<double>(decision.move_v));
+                auto path = planning_core->getPath(now());
+                double new_spd = terrain_speed->getLimit(current_odom_pos_2d, path, decision.move_v/1000.0)*1000;
                 if (now_dis < planning_core->config->end_dis) new_spd *= std::pow(now_dis/planning_core->config->end_dis, planning_core->config->slow_down_pow);
                 map_v = map_v.normalized()*new_spd;
                 // map -> vehicle，右手系，yaw 正方向逆时针。
                 chassis_cmd.vx = std::cos(yaw)*map_v.x() + std::sin(yaw)*map_v.y();
                 chassis_cmd.vy = -std::sin(yaw)*map_v.x() + std::cos(yaw)*map_v.y();
-                pub_status(StatusMsg::RUNNING, "following MINCO");
-                path_puber->publish(planning_core->getPath(now()));
+                pub_status(StatusMsg::RUNNING, planning_core->fallback_route.empty() ? "following MINCO" : "following A*");
+                path_puber->publish(path);
             }else pub_status(StatusMsg::FAILED, "invalid direction");
         }else pub_status(StatusMsg::FAILED, planning_core->last_error);
     }

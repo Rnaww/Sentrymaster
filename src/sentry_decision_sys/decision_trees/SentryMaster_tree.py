@@ -121,11 +121,12 @@ class Hold(py_trees.behaviour.Behaviour):
         else:
             self.stable_since = None
             self.hold_since = None
-        if not valid or now-self.stable_since < 2 or node.actual_posture != 1 or node.elapsed < self.earliest:
+        if not valid or node.actual_posture != 1 or node.elapsed < self.earliest:
             self.hold_since = None
             return py_trees.common.Status.RUNNING
         if self.hold_since is None: self.hold_since = now
-        if now-self.hold_since >= self.duration:
+        # 稳定确认包含在有效停留中，不能再额外加两秒。
+        if now-self.stable_since >= 2 and now-self.hold_since >= self.duration:
             self.complete = True
             node.get_logger().info(f'{self.name}: complete, elapsed={node.elapsed:.1f}')
             return py_trees.common.Status.SUCCESS
@@ -137,7 +138,7 @@ def create_SentryMaster_tree(node):
         Navigate(node, '启动到补给1', S, spin=0),
         Hold(node, '补给1', S, 5.5, deadline=60, supply=True),
         Navigate(node, '起伏入口', U0, speed=650, deadline=180),
-        Navigate(node, '通过起伏路段', U1, speed=450, spin=0, is_cross=True, deadline=180),
+        Navigate(node, '通过起伏路段', U1, speed=450, spin=90, is_cross=True, deadline=180),
         Navigate(node, '中央高地', C, deadline=180),
         Hold(node, '中央高地停留', C, 20.5, deadline=180),
         Navigate(node, '中央返回起伏出口', U1, spin=0),
@@ -145,7 +146,7 @@ def create_SentryMaster_tree(node):
         Navigate(node, '返回补给2', S, speed=650, spin=0),
         Hold(node, '补给2', S, 5.5, earliest=60, deadline=120, supply=True),
         Navigate(node, '梯形坡道入口', T0, deadline=180),
-        Navigate(node, '通过梯形坡道', T1, speed=450, spin=0, is_cross=True, deadline=180),
+        Navigate(node, '通过梯形坡道', T1, speed=450, spin=90, is_cross=True, deadline=180),
         Navigate(node, '梯形高地', T, speed=450, deadline=180),
         Hold(node, '梯形高地停留', T, 20.5, deadline=180),
         Navigate(node, '梯形返回坡道上方', T1, speed=450, spin=0),

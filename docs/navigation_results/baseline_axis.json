@@ -1,0 +1,18 @@
+{
+  "0": [
+    200.0,
+    0.012
+  ],
+  "90": [
+    0.012,
+    -200.0
+  ],
+  "180": [
+    -200.0,
+    -0.012
+  ],
+  "cancel": "zero",
+  "command_timeout": "zero",
+  "ccw_wz_radps": 1.0,
+  "odom_timeout": "zero"
+}

@@ -26,6 +26,7 @@ class DecisionNode(Node):
         self.actual_wz = 0
         self.abort = False
         self.elapsed = 0
+        self.last_task = ""
         self.nav_status = None
         self.referee_suber = self.create_subscription(RefereeData, '/referee_data', self.referee_callback, 10)
         self.odom_suber = self.create_subscription(Odometry, '/navigation_odom', self.odom_callback, 10)
@@ -78,6 +79,10 @@ class DecisionNode(Node):
 
     def tick_callback(self):
         self.tree.tick()
+        task = self.tree.root.tip().name
+        if task != self.last_task:
+            self.get_logger().info(f"TASK: {task}, elapsed={self.elapsed:.1f}, posture={self.actual_posture}")
+            self.last_task = task
         nav = DecisionNavCmd()
         nav.aim_x, nav.aim_y = self.goal
         nav.is_cross = self.is_cross

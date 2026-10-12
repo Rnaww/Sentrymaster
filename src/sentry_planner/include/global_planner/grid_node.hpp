@@ -26,7 +26,13 @@ struct GridNode {
     GridNodePtr cameFrom;
 };
 
+// 队列保存入队时的分数，避免修改节点分数破坏优先队列顺序。
+struct OpenGridNode {
+    GridNodePtr ptr;
+    double score;
+};
+
 // 节点评分比较函数
 struct Compare {
-    bool operator()(const GridNodePtr a, const GridNodePtr b) { return a->fScore > b->fScore; }
+    bool operator()(const OpenGridNode a, const OpenGridNode b) const { return a.score > b.score; }
 };

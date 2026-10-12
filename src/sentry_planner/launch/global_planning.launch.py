@@ -9,7 +9,7 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def _create_planner_node(context):
-    params_file = LaunchConfiguration("params_file").perform(context)
+    params_file = LaunchConfiguration("planner_params_file").perform(context)
     map_dir = os.path.join(get_package_share_directory("sentry_planner"), "map", "701_model")
     parameters = [
         params_file,
@@ -39,7 +39,7 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument(
-                "params_file",
+                "planner_params_file",
                 default_value=PathJoinSubstitution(
                     [planner_share, "config", "global_planning.yaml"]
                 ),

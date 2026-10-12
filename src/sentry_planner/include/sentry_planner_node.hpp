@@ -3,6 +3,7 @@
 #include <nav_msgs/msg/path.hpp>
 
 class PlanningCore;
+class TerrainSpeed;
 #include "rm_msgs/msg/navigation_status.hpp"
 
 class SentryPlannerNode : public rclcpp::Node {
@@ -12,6 +13,7 @@ public:
 private:
     using StatusMsg = rm_msgs::msg::NavigationStatus;
     std::shared_ptr<PlanningCore> planning_core;
+    std::shared_ptr<TerrainSpeed> terrain_speed;
     std::shared_ptr<tf2_ros::Buffer> tf_buffer;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener;
     std::shared_ptr<tf2_ros::TransformBroadcaster> tf_puber;
