@@ -20,6 +20,8 @@ private:
     GridNodePtr*** GridNodeMap_;
     // 静态欧几里德距离场
     double* static_esdf;
+    // 地形行驶、车体高度变化和留边代价。
+    cv::Mat terrain_cost;
     // A*搜索开集
     std::priority_queue<OpenGridNode, std::vector<OpenGridNode>, Compare> open_lists_;
 
@@ -163,6 +165,8 @@ public:
     // 得到vector类型的障碍物点
     void getOccupyVector(std::vector<Eigen::Vector3d>& cloud);
 
+    double traversalCost(const Eigen::Vector3d &point);
+    double surfaceHeight(const Eigen::Vector3d &point);
     // 计算路径代价
     double CalcHeu(GridNodePtr node1, GridNodePtr node2);
     // 计算临域

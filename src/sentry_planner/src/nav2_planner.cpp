@@ -1,4 +1,5 @@
 #include "planning_core.hpp"
+#include "terrain_speed.hpp"
 #include <atomic>
 #include <nav2_core/global_planner.hpp>
 #include <nav2_core/exceptions.hpp>
@@ -21,6 +22,7 @@ public:
         }
         core_node = std::make_shared<rclcpp::Node>("sentry_planning_core", rclcpp::NodeOptions().use_global_arguments(false).parameter_overrides(parameters));
         core = std::make_shared<PlanningCore>(core_node.get());
+        terrain_speed = std::make_shared<TerrainSpeed>(core_node.get());
         mode_suber = node->create_subscription<BoolMsg>("/navigation_cross_mode", rclcpp::QoS(1).transient_local(), [this](BoolMsg::SharedPtr msg){ is_cross = msg->data; });
         path_puber = node->create_publisher<nav_msgs::msg::Path>("/planned_path", 10);
     }
@@ -28,6 +30,7 @@ public:
     void cleanup() override{
         mode_suber.reset();
         path_puber.reset();
+        terrain_speed.reset();
         core.reset();
         core_node.reset();
     }
@@ -40,6 +43,10 @@ public:
         Eigen::Vector3d b(goal.pose.position.x, goal.pose.position.y, 0.05);
         if (!core->plan(a, b, is_cross)) throw nav2_core::PlannerException(core->last_error);
         auto path = core->getPath(node->now());
+        double length;
+        double seconds = terrain_speed->estimateTime(path,length);
+        RCLCPP_INFO_THROTTLE(node->get_logger(), *node->get_clock(), 2000,
+                            "PATH: length=%.2f m, estimated travel=%.2f s (rest to rest, excluding task holds)", length, seconds);
         path_puber->publish(path);
         return path;
     }
@@ -47,6 +54,7 @@ private:
     rclcpp_lifecycle::LifecycleNode::SharedPtr node;
     rclcpp::Node::SharedPtr core_node;
     std::shared_ptr<PlanningCore> core;
+    std::shared_ptr<TerrainSpeed> terrain_speed;
     std::atomic<bool> is_cross{false};
     rclcpp::Subscription<BoolMsg>::SharedPtr mode_suber;
     rclcpp_lifecycle::LifecyclePublisher<nav_msgs::msg::Path>::SharedPtr path_puber;

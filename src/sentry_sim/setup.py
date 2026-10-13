@@ -8,7 +8,7 @@ data_files = [
     ('share/' + package_name, ['package.xml']),
     ('share/' + package_name + '/launch', glob('launch/*.py')),
 ]
-for directory in ['models', 'worlds', 'robots']:
+for directory in ['models', 'worlds', 'robots', 'config']:
     for path, directories, filenames in os.walk(directory):
         data_files.append((os.path.join('share', package_name, path), [os.path.join(path, name) for name in filenames]))
 

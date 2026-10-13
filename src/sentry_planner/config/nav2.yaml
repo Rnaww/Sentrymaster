@@ -69,7 +69,7 @@ planner_server:
                 window_size: 20
                 pre_hz: 1.5
             localOptimizer:
-                MaxVelMag: 3.5
+                MaxVelMag: 4.5
                 MaxBdrMag: 4.0
                 MaxTiltAngle: 0.1
                 MinThrust: 0.0
@@ -116,7 +116,7 @@ controller_server:
             yaw_goal_tolerance: 3.15
         FollowPath:
             plugin: pb_omni_pid_pursuit_controller::OmniPidPursuitController
-            translation_kp: 6.0
+            translation_kp: 12.0
             translation_ki: 0.0
             translation_kd: 0.0
             enable_rotation: false
@@ -124,15 +124,15 @@ controller_server:
             use_velocity_scaled_lookahead_dist: true
             lookahead_time: 0.5
             min_lookahead_dist: 0.2
-            max_lookahead_dist: 0.6
+            max_lookahead_dist: 0.4
             use_interpolation: true
             v_linear_min: 0.0
-            v_linear_max: 3.5
+            v_linear_max: 4.5
             min_approach_linear_velocity: 0.03
-            approach_velocity_scaling_dist: 0.6
+            approach_velocity_scaling_dist: 0.4
             curvature_min: 0.1
             curvature_max: 0.7
-            reduction_ratio_at_high_curvature: 0.2
+            reduction_ratio_at_high_curvature: 0.4
             curvature_forward_dist: 0.5
             curvature_backward_dist: 0.2
             max_velocity_scaling_factor_rate: 1.5

@@ -4,3 +4,9 @@
 /install
 
 __pycache__
+/.vscode/
+/docs/navigation_results/
+*.pyc
+*.pyo
+/.pytest_cache/
+.DS_Store

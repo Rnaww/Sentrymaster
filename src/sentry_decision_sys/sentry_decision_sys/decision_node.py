@@ -1,7 +1,7 @@
 import rclpy, py_trees, math
 from rclpy.node import Node
 from tf2_ros import Buffer, TransformListener
-from rm_msgs.msg import RefereeData, ChassisData, DecisionMcuCmd, DecisionNavCmd, NavigationStatus
+from rm_msgs.msg import RefereeData, ChassisData, DecisionMcuCmd, DecisionNavCmd
 from nav_msgs.msg import Odometry
 from decision_trees.SentryMaster_tree import create_SentryMaster_tree, B
 
@@ -24,14 +24,11 @@ class DecisionNode(Node):
         self.x, self.y = B
         self.linear_speed = 0
         self.actual_wz = 0
-        self.abort = False
         self.elapsed = 0
         self.last_task = ""
-        self.nav_status = None
         self.referee_suber = self.create_subscription(RefereeData, '/referee_data', self.referee_callback, 10)
         self.odom_suber = self.create_subscription(Odometry, '/navigation_odom', self.odom_callback, 10)
         self.chassis_suber = self.create_subscription(ChassisData, '/chassis_data', self.chassis_callback, 10)
-        self.status_suber = self.create_subscription(NavigationStatus, '/navigation_status', self.status_callback, 10)
         self.nav_publisher = self.create_publisher(DecisionNavCmd, '/decision2nav', 10)
         self.mcu_publisher = self.create_publisher(DecisionMcuCmd, '/decision2mcu', 10)
         self.tree = py_trees.trees.BehaviourTree(create_SentryMaster_tree(self))
@@ -43,7 +40,7 @@ class DecisionNode(Node):
 
     def inputs_valid(self):
         now = self.time_now()
-        return not self.abort and 'referee' in self.inputs and 'odom' in self.inputs and 0 < self.inputs['referee'].game_time <= 300 and now-self.recv_times['referee'] < 1 and now-self.recv_times['odom'] < 0.5
+        return 'referee' in self.inputs and 'odom' in self.inputs and 0 < self.inputs['referee'].game_time <= 300 and now-self.recv_times['referee'] < 1 and now-self.recv_times['odom'] < 0.5
 
     def referee_callback(self, msg : RefereeData) -> None:
         self.inputs['referee'] = msg
@@ -73,9 +70,6 @@ class DecisionNode(Node):
 
     def chassis_callback(self, msg : ChassisData) -> None:
         self.inputs['chassis'] = msg
-
-    def status_callback(self, msg : NavigationStatus) -> None:
-        self.nav_status = msg
 
     def tick_callback(self):
         self.tree.tick()

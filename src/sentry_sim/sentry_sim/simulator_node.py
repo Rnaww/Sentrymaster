@@ -1,8 +1,10 @@
 import rclpy, math, time, json, os
 from rclpy.node import Node
 from ament_index_python.packages import get_package_share_directory
-from geometry_msgs.msg import Twist
-from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Twist, PoseStamped
+from nav_msgs.msg import Odometry, Path
+from sensor_msgs.msg import JointState
+from visualization_msgs.msg import Marker
 from rosgraph_msgs.msg import Clock
 from std_msgs.msg import String
 from rm_msgs.msg import NavigationMcuCmd, DecisionMcuCmd, RefereeData, ChassisData
@@ -48,6 +50,11 @@ class SimulatorNode(Node):
         self.distance = 0
         self.collisions = 0
         self.last_event_count = 0
+        self.trajectory = []
+        self.executed_path = Path()
+        self.executed_path.header.frame_id = 'map'
+        self.last_path_time = -1
+        self.last_visual_time = -1
         self.last_wall = time.monotonic()
         self.max_acc = 1.5
         share = get_package_share_directory('sentry_planner')
@@ -62,6 +69,9 @@ class SimulatorNode(Node):
         self.chassis_puber = self.create_publisher(ChassisData, '/chassis_data', 10)
         self.gazebo_puber = self.create_publisher(Twist, '/sentry_robot/cmd_vel', 10)
         self.score_puber = self.create_publisher(String, '/simulation_score', 10)
+        self.path_puber = self.create_publisher(Path, '/executed_path', 1)
+        self.field_puber = self.create_publisher(Marker, '/simulation_field', 1)
+        self.joint_puber = self.create_publisher(JointState, '/joint_states', 10)
         self.timer = self.create_timer(0.01, self.timer_callback)
         self.get_logger().info(f'SIM YAML: physics={self.physics}, realtime_factor={self.factor}, pose=({self.x},{self.y},{self.yaw})')
 
@@ -122,11 +132,15 @@ class SimulatorNode(Node):
         c,s = math.cos(self.yaw),math.sin(self.yaw)
         vx,vy = c*bx-s*by,s*bx+c*by
         norm = math.hypot(vx,vy)
-        if norm > 3.5: vx,vy = vx*3.5/norm,vy*3.5/norm
-        diff = math.hypot(vx-self.vx,vy-self.vy)
-        scale = min(1,self.max_acc*dt/diff) if diff > 0 else 1
-        self.vx += (vx-self.vx)*scale
-        self.vy += (vy-self.vy)*scale
+        if norm > 4.5: vx,vy = vx*4.5/norm,vy*4.5/norm
+        if self.physics == 'gazebo':
+            # 与旧 SimulatorBridge 一样：限幅后直接发送 Twist，由 planar_move 执行。
+            self.vx,self.vy = vx,vy
+        else:
+            diff = math.hypot(vx-self.vx,vy-self.vy)
+            scale = min(1,self.max_acc*dt/diff) if diff > 0 else 1
+            self.vx += (vx-self.vx)*scale
+            self.vy += (vy-self.vy)*scale
         self.wz = float(max(-math.pi,min(math.pi,target_wz)))
         cmd = Twist()
         cmd.linear.x = c*self.vx+s*self.vy
@@ -152,8 +166,9 @@ class SimulatorNode(Node):
         odom.child_frame_id = 'odin1_base_link'
         odom.header.stamp.sec = int(self.clock_time)
         odom.header.stamp.nanosec = int((self.clock_time%1)*1e9)
-        vehicle_q = (0,0,math.sin(self.yaw/2),math.cos(self.yaw/2))
-        vehicle_z = self.ground(self.x,self.y)
+        vehicle_q = (0.0,0.0,math.sin(self.yaw/2),math.cos(self.yaw/2))
+        # 与旧模型车轮中心和半径对应：0.2242 + 0.0758 m。
+        vehicle_z = self.ground(self.x,self.y)+0.3
         if self.physics == 'gazebo':
             actual_q = self.gazebo_odom.pose.pose.orientation
             vehicle_q = (actual_q.x,actual_q.y,actual_q.z,actual_q.w)
@@ -166,6 +181,38 @@ class SimulatorNode(Node):
         q = odom.pose.pose.orientation
         q.x,q.y,q.z,q.w = sensor_q
         self.odom_puber.publish(odom)
+        if self.clock_time-self.last_path_time >= 0.1 and not self.reported:
+            self.last_path_time = self.clock_time
+            pose = PoseStamped()
+            pose.header = odom.header
+            pose.header.frame_id = 'map'
+            pose.pose.position.x = self.x
+            pose.pose.position.y = self.y
+            pose.pose.position.z = vehicle_z
+            pose.pose.orientation.x,pose.pose.orientation.y,pose.pose.orientation.z,pose.pose.orientation.w = vehicle_q
+            self.executed_path.poses.append(pose)
+            self.trajectory.append([round(self.elapsed,3),self.x,self.y,self.yaw])
+        if self.clock_time-self.last_visual_time >= 0.5:
+            self.last_visual_time = self.clock_time
+            self.executed_path.header.stamp = odom.header.stamp
+            self.path_puber.publish(self.executed_path)
+            field = Marker()
+            field.header = self.executed_path.header
+            field.ns = 'field_701'
+            field.type = Marker.MESH_RESOURCE
+            field.action = Marker.ADD
+            field.pose.orientation.w = 1.0
+            field.scale.x = field.scale.y = field.scale.z = 1.0
+            field.color.r = field.color.g = field.color.b = 0.55
+            field.color.a = 1.0
+            field.mesh_resource = 'package://sentry_sim/models/rmuc_field/meshes/701.stl'
+            self.field_puber.publish(field)
+        if self.physics != 'gazebo':
+            joints = JointState()
+            joints.header = odom.header
+            joints.name = ['gimbal_yaw_joint','front_left_wheel_joint','front_right_wheel_joint','rear_left_wheel_joint','rear_right_wheel_joint']
+            joints.position = [0.0]*len(joints.name)
+            self.joint_puber.publish(joints)
         referee = RefereeData()
         referee.game_time = 0 if self.start_time is None else max(0,int(math.ceil(300-self.elapsed)))
         referee.sentry_posture = self.posture
@@ -180,18 +227,20 @@ class SimulatorNode(Node):
         self.chassis_puber.publish(chassis)
         h = self.ground(self.x,self.y)
         exception = (14.2 < self.x < 16.2 and 1.8 < self.y < 6.8) or any(abs(self.ground(self.x+dx,self.y+dy)-h) > 0.02 for dx,dy in [(0.3,0),(-0.3,0),(0,0.3),(0,-0.3)])
-        if self.start_time is not None and self.elapsed < 300: self.judge.update(self.elapsed,self.x,self.y,speed,actual_wz,self.posture,exception)
+        if self.start_time is not None and self.elapsed < 300: self.judge.update(self.elapsed,self.x,self.y,speed,actual_wz,self.posture,exception,self.ground(self.x,self.y))
         if len(self.judge.events) != self.last_event_count:
             self.last_event_count = len(self.judge.events)
             self.get_logger().info('SCORE '+json.dumps(self.judge.events[-1],ensure_ascii=False))
         if self.elapsed >= 300 and not self.reported:
             self.reported = True
-            result = {'physics':self.physics,'score':self.judge.score,'events':self.judge.events,'distance':round(self.distance,2),'collision_samples':self.collisions,'final_pose':[self.x,self.y],'scoring_posture_seconds':self.judge.scoring_time}
+            result = {'physics':self.physics,'max_speed_mps':4.5,'score':self.judge.score,'events':self.judge.events,'distance':round(self.distance,2),'collision_samples':self.collisions,'final_pose':[self.x,self.y],'scoring_posture_seconds':self.judge.scoring_time}
             data = json.dumps(result,ensure_ascii=False,indent=2)
             self.get_logger().info('RESULT '+data)
             msg = String();msg.data = data;self.score_puber.publish(msg)
             if self.output_file:
-                with open(self.output_file,'w') as f: f.write(data+'\n')
+                result['trajectory_columns'] = ['elapsed_s','x_m','y_m','yaw_rad']
+                result['trajectory'] = self.trajectory
+                with open(self.output_file,'w') as f: json.dump(result,f,ensure_ascii=False,indent=2);f.write('\n')
 
 def main(args=None):
     rclpy.init(args=args)

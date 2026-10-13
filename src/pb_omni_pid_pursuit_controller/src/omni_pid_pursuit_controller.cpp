@@ -262,7 +262,9 @@ geometry_msgs::msg::TwistStamped OmniPidPursuitController::computeVelocityComman
   for (int i = 0; i < sample_points; ++i) {
     int index = std::min((i * plan_size) / sample_points, plan_size - 1);
     geometry_msgs::msg::PoseStamped map_pose;
-    transformPose(costmap_ros_->getGlobalFrameID(), transformed_plan.poses[index], map_pose);
+    // Check the original map path; a vehicle-frame round trip can move a
+    // point on a grid boundary into the neighboring occupied cell.
+    transformPose(costmap_ros_->getGlobalFrameID(), global_plan_.poses[index], map_pose);
     costmap_frame_local_plan.poses.push_back(map_pose);
   }
 

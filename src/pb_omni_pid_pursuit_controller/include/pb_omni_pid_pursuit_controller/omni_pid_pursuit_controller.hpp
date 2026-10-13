@@ -287,7 +287,7 @@ private:
   double use_rotate_to_heading_treshold_;
   double v_linear_min_;
   double v_linear_max_;
-  double speed_limit_ = 3.5;
+  double speed_limit_ = 4.5;
   double v_angular_min_;
   double v_angular_max_;
   double min_approach_linear_velocity_;
