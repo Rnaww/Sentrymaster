@@ -5,7 +5,8 @@ from pathlib import Path
 
 def stop(process):
     exited = process.poll() is not None
-    try: os.killpg(process.pid, signal.SIGINT)
+    # launch 自己把 SIGINT 传给节点，不能再给整个组重复发一次。
+    try: os.kill(process.pid, signal.SIGINT) if not exited else os.killpg(process.pid, signal.SIGINT)
     except ProcessLookupError: return
     if exited:
         time.sleep(2)
@@ -70,7 +71,9 @@ def main():
             finally: stop(process)
         row = {'run':number,'status':status,'wall_seconds':round(time.monotonic()-start,2)}
         log_text = (run/'launch.log').read_text(errors='replace')
-        row['node_crashes'] = log_text.count('process has died')
+        runtime_log, _, shutdown_log = log_text.partition('[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)')
+        row['node_crashes'] = runtime_log.count('process has died')
+        row['shutdown_exits'] = shutdown_log.count('process has died')
         row['controller_aborts'] = log_text.count('Aborting handle')
         row['lookahead_warnings'] = log_text.count('No traversable lookahead segment')
         if result is not None: row.update({k:v for k,v in result.items() if k not in ('trajectory','trajectory_columns')})

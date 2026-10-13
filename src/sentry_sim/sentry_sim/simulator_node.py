@@ -54,6 +54,8 @@ class SimulatorNode(Node):
         self.collisions = 0
         self.max_actual_speed = self.max_command_speed = 0
         self.terrain_spin_seconds = 0
+        self.terrain_spin_events = []
+        self.in_terrain_spin = False
         self.last_event_count = 0
         self.trajectory = []
         self.executed_path = Path()
@@ -253,8 +255,12 @@ class SimulatorNode(Node):
         if self.start_time is not None and not self.reported:
             self.max_actual_speed = max(self.max_actual_speed,speed)
             self.max_command_speed = max(self.max_command_speed,math.hypot(self.nav.vx,self.nav.vy)/1000)
-            if not self.terrain.flat(self.x,self.y) and abs(actual_wz) >= math.radians(30):
+            terrain_spin = not self.terrain.flat(self.x,self.y) and abs(actual_wz) >= math.radians(30)
+            if terrain_spin:
                 self.terrain_spin_seconds += dt
+                if not self.in_terrain_spin:
+                    self.terrain_spin_events.append({'time':self.elapsed,'x':self.x,'y':self.y,'wz_degps':math.degrees(actual_wz)})
+            self.in_terrain_spin = terrain_spin
         if not self.terrain.spin_allowed(self.x,self.y,world_v[0],world_v[1]): self.last_terrain_unsafe = self.clock_time
         exception = self.clock_time-self.last_terrain_unsafe < self.spin_resume_delay+0.1
         if self.start_time is not None and self.elapsed < 300: self.judge.update(self.elapsed,self.x,self.y,speed,actual_wz,self.posture,exception,self.ground(self.x,self.y))
@@ -263,7 +269,7 @@ class SimulatorNode(Node):
             self.get_logger().info('SCORE '+json.dumps(self.judge.events[-1],ensure_ascii=False))
         if self.elapsed >= 300 and not self.reported:
             self.reported = True
-            result = {'physics':self.physics,'max_speed_mps':4.5,'max_actual_speed_mps':self.max_actual_speed,'max_command_speed_mps':self.max_command_speed,'terrain_spin_seconds':self.terrain_spin_seconds,'score':self.judge.score,'spin_violations':self.judge.spin_violations,'events':self.judge.events,'distance':round(self.distance,2),'collision_samples':self.collisions,'final_pose':[self.x,self.y],'scoring_posture_seconds':self.judge.scoring_time}
+            result = {'physics':self.physics,'max_speed_mps':4.5,'max_actual_speed_mps':self.max_actual_speed,'max_command_speed_mps':self.max_command_speed,'terrain_spin_seconds':self.terrain_spin_seconds,'terrain_spin_events':self.terrain_spin_events,'score':self.judge.score,'spin_violations':self.judge.spin_violations,'events':self.judge.events,'distance':round(self.distance,2),'collision_samples':self.collisions,'final_pose':[self.x,self.y],'scoring_posture_seconds':self.judge.scoring_time}
             data = json.dumps(result,ensure_ascii=False,indent=2)
             self.get_logger().info('RESULT '+data)
             msg = String();msg.data = data;self.score_puber.publish(msg)

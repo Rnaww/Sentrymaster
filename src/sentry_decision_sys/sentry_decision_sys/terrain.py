@@ -6,19 +6,20 @@ class Terrain:
     def __init__(self, filename):
         self.image = Image.open(filename).convert('L')
         self.pixels = self.image.load()
-        self.offsets = []
-        for i in range(-5,6):
-            width = round(math.sqrt(25-i*i))
-            for j in range(-width,width+1): self.offsets.append((i,j))
+        self.offsets = {5:[], 6:[]}
+        for radius in self.offsets:
+            for i in range(-radius,radius+1):
+                width = round(math.sqrt(radius*radius-i*i))
+                for j in range(-width,width+1): self.offsets[radius].append((i,j))
 
-    def flat(self, x, y):
+    def flat(self, x, y, radius=5):
         # 车体旋转包络加栅格误差，半径约 0.5m。
         dx = max(14.2-x,0,x-16.2)
         dy = max(2.2-y,0,y-6.8)
-        if dx*dx+dy*dy <= 0.5*0.5: return False
+        if dx*dx+dy*dy <= (radius*0.1)**2: return False
         row,col = int((x+25)/0.1),int((y+25)/0.1)
         heights = []
-        for i,j in self.offsets:
+        for i,j in self.offsets[radius]:
             r,c = row+i,col+j
             if not (0 <= r < self.image.height and 0 <= c < self.image.width): return False
             h = self.pixels[c,r]*0.8/255
@@ -26,8 +27,10 @@ class Terrain:
         return max(heights)-min(heights) <= 0.015
 
     def spin_allowed(self, x, y, vx=0, vy=0):
-        # 提前 0.1s 停止旋转，不等车体已经进入坡面才发停止命令。
-        return all(self.flat(x+vx*0.1*t,y+vy*0.1*t) for t in [0,0.5,1])
+        # 行驶增加 0.1m 缓冲，避免拐弯后方向变化及反馈延迟导致坡面残留旋转。
+        # 停稳使用实际包络，堡垒平顶能正常旋转。
+        radius = 6 if math.hypot(vx,vy) > 0.01 else 5
+        return all(self.flat(x+vx*0.1*t,y+vy*0.1*t,radius) for t in [0,0.5,1])
 
 def rotate_vector(q, v):
     norm = math.sqrt(q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w)
