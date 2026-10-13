@@ -1,5 +1,6 @@
 import rclpy, math, time, json, os
 from rclpy.node import Node
+from rclpy.executors import ExternalShutdownException
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import Twist, PoseStamped
 from nav_msgs.msg import Odometry, Path
@@ -282,7 +283,10 @@ def main(args=None):
     rclpy.init(args=args)
     node = SimulatorNode()
     try: rclpy.spin(node)
-    except KeyboardInterrupt: pass
+    except (KeyboardInterrupt, ExternalShutdownException): pass
+    except RuntimeError:
+        # 退出时 context 可能先关闭；运行期间的异常仍正常抛出。
+        if rclpy.ok(): raise
     finally:
         node.destroy_node()
         if rclpy.ok(): rclpy.shutdown()

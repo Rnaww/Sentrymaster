@@ -1,5 +1,6 @@
 import rclpy, py_trees, math, os
 from rclpy.node import Node
+from rclpy.executors import ExternalShutdownException
 from tf2_ros import Buffer, TransformListener
 from rm_msgs.msg import RefereeData, ChassisData, DecisionMcuCmd, DecisionNavCmd
 from nav_msgs.msg import Odometry
@@ -132,7 +133,10 @@ def cleanup_node(node: Node) -> None:
 
 def spin_node(node: Node) -> None:
     try: rclpy.spin(node)
-    except KeyboardInterrupt: pass
+    except (KeyboardInterrupt, ExternalShutdownException): pass
+    except RuntimeError:
+        # 退出时 context 可能先关闭；运行期间的异常仍正常抛出。
+        if rclpy.ok(): raise
 
 def main(args=None) -> None:
     rclpy.init(args=args)
