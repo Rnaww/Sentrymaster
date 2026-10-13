@@ -19,6 +19,7 @@ class Scoring:
         self.in_supply = False
         self.spin_reward = False
         self.spin_valid = True
+        self.spin_violations = []
         self.scoring_time = 0
         self.last_time = 0
 
@@ -33,7 +34,9 @@ class Scoring:
             self.spin_valid = True
         self.in_supply = in_supply
         traveling = speed > 0.05 and all(math.dist((x,y), point) > 0.6 for point in POINTS.values())
-        if self.spin_reward and traveling and not terrain_exception and abs(wz) < math.radians(30): self.spin_valid = False
+        if self.spin_reward and self.spin_valid and traveling and not terrain_exception and abs(wz) < math.radians(30):
+            self.spin_valid = False
+            self.spin_violations.append({'time':round(t,3),'x':x,'y':y,'speed':speed,'wz':wz})
         if math.dist((x,y), (15.45,2.55)) < 0.6: self.rough_entered = True
         if self.rough_entered and math.dist((x,y), (15.45,6.35)) < 0.6: self.rough_crossed = True
         # 基地坡面由实际高度变化确认，不要求经过固定入口、出口点。

@@ -178,7 +178,7 @@ public:
         auto &goal = path.poses.back().pose.position;
         double remaining = std::hypot(goal.x-position.x(),goal.y-position.y());
         // 按 YAML 的平移加速度预算提前制动。
-        limit = std::min(limit,std::sqrt(2*max_acc*std::max(0.0,remaining-0.1)));
+        limit = std::min(limit,std::sqrt(2*max_acc*std::max(0.0,remaining-0.01)));
         size_t nearest = 0;
         double nearest_dis = INFINITY;
         for (size_t i = 0; i < path.poses.size(); i++){

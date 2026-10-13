@@ -1,6 +1,7 @@
 import os
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess, Shutdown, IncludeLaunchDescription
+from launch.actions import ExecuteProcess, Shutdown, IncludeLaunchDescription, DeclareLaunchArgument
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
@@ -62,6 +63,7 @@ def generate_launch_description():
         package='sentry_decision_sys',
         executable='sentry_decision_node',
         name='sentry_decision_node',
+        parameters=[os.path.join(get_package_share_directory('sentry_decision_sys'), 'config', 'decision.yaml')],
         output='both',
     )
 
@@ -72,7 +74,18 @@ def generate_launch_description():
         output='screen',
     )
 
+    recorder = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            PathJoinSubstitution([FindPackageShare('sentry_record'), 'launch', 'record.launch.py'])
+        ]),
+        condition=IfCondition(LaunchConfiguration('record')),
+        launch_arguments={'use_sim_time': 'false', 'record_directory': LaunchConfiguration('record_directory')}.items(),
+    )
+
     return LaunchDescription([
+        DeclareLaunchArgument('record', default_value='false'),
+        DeclareLaunchArgument('record_directory', default_value=os.path.join(os.getcwd(),'recordings')),
+        recorder,
         # 机器人固定坐标变换发布节点
         robot_state_publisher,
         # USB驱动

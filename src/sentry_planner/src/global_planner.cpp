@@ -571,6 +571,13 @@ bool GlobalPathPlanner::GetPath(std::vector<Eigen::Vector3d>& path, const Eigen:
     }
     std::reverse(raw_path.begin(), raw_path.end());
 
+    // 同格或相邻格也可能已经搜索成功，不能把最后一小段当成规划失败。
+    if (plan_success && raw_path.size() <= 1){
+        path.push_back(gridIndex2coord(opt_start_point_index));
+        if (opt_start_point_index != opt_end_point_index) path.push_back(gridIndex2coord(opt_end_point_index));
+        return true;
+    }
+
     // 同角度路径简化
     if (raw_path.size() <= 1) {
         error_log("raw path point size < 2");

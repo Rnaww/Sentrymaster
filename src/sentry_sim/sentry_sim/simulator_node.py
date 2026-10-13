@@ -10,6 +10,7 @@ from std_msgs.msg import String
 from rm_msgs.msg import NavigationMcuCmd, DecisionMcuCmd, RefereeData, ChassisData
 from PIL import Image
 from .scoring import Scoring
+from sentry_decision_sys.terrain import Terrain
 
 # 与原 URDF 的 odin1_base_link -> vehicle 完全互逆。
 FIXED_TRANSLATION = (0.16797, -0.17893, -0.00451)
@@ -29,6 +30,8 @@ class SimulatorNode(Node):
         super().__init__('sentry_simulator')
         self.physics = self.declare_parameter('physics', 'kinematic').value
         self.factor = float(self.declare_parameter('realtime_factor', 1.0).value)
+        self.spin_resume_delay = float(self.declare_parameter('spin_resume_delay', 0.5).value)
+        self.last_terrain_unsafe = 0
         self.output_file = self.declare_parameter('output_file', '').value
         self.x = float(self.declare_parameter('robot_x', 7.25).value)
         self.y = float(self.declare_parameter('robot_y', 2.70).value)
@@ -49,6 +52,8 @@ class SimulatorNode(Node):
         self.judge = Scoring()
         self.distance = 0
         self.collisions = 0
+        self.max_actual_speed = self.max_command_speed = 0
+        self.terrain_spin_seconds = 0
         self.last_event_count = 0
         self.trajectory = []
         self.executed_path = Path()
@@ -59,6 +64,7 @@ class SimulatorNode(Node):
         self.max_acc = 1.5
         share = get_package_share_directory('sentry_planner')
         self.height = Image.open(os.path.join(share, 'map', '701_model', 'new_701_deep.png')).convert('L')
+        self.terrain = Terrain(os.path.join(share, 'map', '701_model', 'new_701_deep.png'))
         self.occupancy = Image.open(os.path.join(share, 'map', '701_model', '701_navigation.png')).convert('L')
         self.nav_suber = self.create_subscription(NavigationMcuCmd, '/navigation2mcu', self.nav_callback, 10)
         self.decision_suber = self.create_subscription(DecisionMcuCmd, '/decision2mcu', self.decision_callback, 10)
@@ -180,6 +186,23 @@ class SimulatorNode(Node):
         odom.pose.pose.position.z = vehicle_z+offset[2]
         q = odom.pose.pose.orientation
         q.x,q.y,q.z,q.w = sensor_q
+        if self.physics == 'gazebo':
+            v = self.gazebo_odom.twist.twist.linear
+            w = self.gazebo_odom.twist.twist.angular
+            # planar_move 给出仅按 yaw 旋转的平面速度；还原 odom 后再按完整姿态转到车体。
+            c,s = math.cos(self.yaw),math.sin(self.yaw)
+            inverse_vehicle = (-vehicle_q[0],-vehicle_q[1],-vehicle_q[2],vehicle_q[3])
+            vehicle_v = rotate(inverse_vehicle,(c*v.x-s*v.y,s*v.x+c*v.y,0.0))
+            vehicle_w = rotate(inverse_vehicle,(0.0,0.0,w.z))
+        else:
+            vehicle_v = (cmd.linear.x,cmd.linear.y,0.0)
+            vehicle_w = (0.0,0.0,self.wz)
+        wx,wy,wz = vehicle_w
+        tx,ty,tz = FIXED_TRANSLATION
+        sensor_v = (vehicle_v[0]+wy*tz-wz*ty,vehicle_v[1]+wz*tx-wx*tz,vehicle_v[2]+wx*ty-wy*tx)
+        inverse = (-FIXED_ROTATION[0],-FIXED_ROTATION[1],-FIXED_ROTATION[2],FIXED_ROTATION[3])
+        odom.twist.twist.linear.x,odom.twist.twist.linear.y,odom.twist.twist.linear.z = rotate(inverse,sensor_v)
+        odom.twist.twist.angular.x,odom.twist.twist.angular.y,odom.twist.twist.angular.z = rotate(inverse,vehicle_w)
         self.odom_puber.publish(odom)
         if self.clock_time-self.last_path_time >= 0.1 and not self.reported:
             self.last_path_time = self.clock_time
@@ -226,14 +249,21 @@ class SimulatorNode(Node):
         chassis.wz = math.degrees(actual_wz)
         self.chassis_puber.publish(chassis)
         h = self.ground(self.x,self.y)
-        exception = (14.2 < self.x < 16.2 and 1.8 < self.y < 6.8) or any(abs(self.ground(self.x+dx,self.y+dy)-h) > 0.02 for dx,dy in [(0.3,0),(-0.3,0),(0,0.3),(0,-0.3)])
+        world_v = rotate(vehicle_q,vehicle_v)
+        if self.start_time is not None and not self.reported:
+            self.max_actual_speed = max(self.max_actual_speed,speed)
+            self.max_command_speed = max(self.max_command_speed,math.hypot(self.nav.vx,self.nav.vy)/1000)
+            if not self.terrain.flat(self.x,self.y) and abs(actual_wz) >= math.radians(30):
+                self.terrain_spin_seconds += dt
+        if not self.terrain.spin_allowed(self.x,self.y,world_v[0],world_v[1]): self.last_terrain_unsafe = self.clock_time
+        exception = self.clock_time-self.last_terrain_unsafe < self.spin_resume_delay+0.1
         if self.start_time is not None and self.elapsed < 300: self.judge.update(self.elapsed,self.x,self.y,speed,actual_wz,self.posture,exception,self.ground(self.x,self.y))
         if len(self.judge.events) != self.last_event_count:
             self.last_event_count = len(self.judge.events)
             self.get_logger().info('SCORE '+json.dumps(self.judge.events[-1],ensure_ascii=False))
         if self.elapsed >= 300 and not self.reported:
             self.reported = True
-            result = {'physics':self.physics,'max_speed_mps':4.5,'score':self.judge.score,'events':self.judge.events,'distance':round(self.distance,2),'collision_samples':self.collisions,'final_pose':[self.x,self.y],'scoring_posture_seconds':self.judge.scoring_time}
+            result = {'physics':self.physics,'max_speed_mps':4.5,'max_actual_speed_mps':self.max_actual_speed,'max_command_speed_mps':self.max_command_speed,'terrain_spin_seconds':self.terrain_spin_seconds,'score':self.judge.score,'spin_violations':self.judge.spin_violations,'events':self.judge.events,'distance':round(self.distance,2),'collision_samples':self.collisions,'final_pose':[self.x,self.y],'scoring_posture_seconds':self.judge.scoring_time}
             data = json.dumps(result,ensure_ascii=False,indent=2)
             self.get_logger().info('RESULT '+data)
             msg = String();msg.data = data;self.score_puber.publish(msg)

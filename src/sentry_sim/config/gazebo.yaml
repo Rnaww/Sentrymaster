@@ -1,0 +1,4 @@
+gazebo:
+  ros__parameters:
+    # 与决策/控制的 100Hz 周期一致，避免仿真时钟每 0.1s 才跳一次。
+    publish_rate: 100.0
