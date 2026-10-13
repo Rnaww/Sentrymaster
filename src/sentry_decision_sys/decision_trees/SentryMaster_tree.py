@@ -42,10 +42,14 @@ class Navigate(py_trees.behaviour.Behaviour):
         self.deadline = deadline
         self.reach_thresh = reach_thresh
         self.complete = False
+        self.start_time = None
+        self.travel_time = 0
 
     def update(self):
         node = self.node
         if self.complete: return py_trees.common.Status.SUCCESS
+        if self.start_time is None: self.start_time = node.time_now()
+        self.travel_time = node.time_now()-self.start_time
         node.goal = self.point
         node.is_cross = self.is_cross
         node.posture = 3
@@ -107,8 +111,35 @@ class Hold(py_trees.behaviour.Behaviour):
             return py_trees.common.Status.SUCCESS
         return py_trees.common.Status.RUNNING
 
+class SupplyTimeAvailable(py_trees.behaviour.Behaviour):
+    def __init__(self, node, fortress_leg):
+        super().__init__('检查第4次补给时间')
+        self.node = node
+        self.fortress_leg = fortress_leg
+
+    def update(self):
+        node = self.node
+        # 裁判时间是整数秒，另计收包年龄；返程先按去程快20%作乐观估计。
+        elapsed = node.elapsed+1+max(0,node.time_now()-node.recv_times['referee'])
+        distance = math.hypot(node.x-S[0],node.y-S[1])
+        travel = max(distance/4.5,self.fortress_leg.travel_time*0.8)
+        if elapsed+travel+5.5 <= 240: return py_trees.common.Status.SUCCESS
+        return py_trees.common.Status.FAILURE
+
 def create_SentryMaster_tree(node):
     safety = py_trees.composites.Sequence('安全停车', memory=False, children=[Unsafe(node), Stop(node)])
+    fortress_leg = Navigate(node, '堡垒中央', F, reach_thresh=0.04)
+    final_supply = py_trees.composites.Selector('最后两次补给', memory=True, children=[
+        py_trees.composites.Sequence('按时完成第4次补给', memory=True, children=[
+            SupplyTimeAvailable(node, fortress_leg),
+            Navigate(node, '返回补给4', S),
+            Hold(node, '补给4', S, 5.5, earliest=180, deadline=240, supply=True),
+            Hold(node, '等待第5分钟', S, 0, earliest=240.5),
+            Navigate(node, '补给离区检查点', R),
+        ]),
+        # 已来不及补给4时，在离补给区超过5m的堡垒等到下一分钟再返回。
+        Hold(node, '等待第5分钟补给', F, 0, earliest=240.5, spin=90),
+    ])
     tasks = py_trees.composites.Sequence('新生赛任务', memory=True, children=[
         Navigate(node, '启动到补给1', S),
         Hold(node, '补给1', S, 5.5, deadline=60, supply=True),
@@ -124,13 +155,9 @@ def create_SentryMaster_tree(node):
         Hold(node, '梯形高地停留', T, 20.5, deadline=180),
         Navigate(node, '返回补给3', S),
         Hold(node, '补给3', S, 5.5, earliest=120, deadline=180, supply=True),
-        Navigate(node, '堡垒中央', F, reach_thresh=0.04),
+        fortress_leg,
         Hold(node, '堡垒旋转停留', F, 20.5, earliest=180, spin=90),
-        Navigate(node, '返回补给4', S),
-        Hold(node, '补给4', S, 5.5, earliest=180, deadline=240, supply=True),
-        # 等到最后一分钟再执行离区往返。
-        Hold(node, '等待第5分钟', S, 0, earliest=240.5),
-        Navigate(node, '补给离区检查点', R),
+        final_supply,
         Navigate(node, '返回补给5', S),
         Hold(node, '补给5', S, 5.5, earliest=240, supply=True),
     ])

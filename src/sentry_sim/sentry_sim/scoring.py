@@ -11,7 +11,8 @@ class Scoring:
         self.supply_minutes = set()
         self.done = set()
         self.last_supply = (7.25, 2.70)
-        self.excursion = math.dist(self.last_supply, POINTS['supply'])
+        self.excursion = 0
+        self.excursion_minute = -1
         self.rough_entered = False
         self.rough_crossed = False
         self.slope_entered = False
@@ -27,7 +28,12 @@ class Scoring:
         dt = max(0, min(t-self.last_time, 0.2))
         self.last_time = t
         if posture == 1: self.scoring_time += dt
-        self.excursion = max(self.excursion, math.dist((x,y), self.last_supply))
+        minute = int(t//60)
+        if minute != self.excursion_minute:
+            self.excursion = 0
+            self.excursion_minute = minute
+        # 每分钟都须在补给区5m外出现，再回区停留；不能沿用上一分钟的距离。
+        self.excursion = max(self.excursion, math.dist((x,y), POINTS['supply']))
         in_supply = math.dist((x,y), POINTS['supply']) <= 0.6
         if in_supply and not self.in_supply:
             self.spin_reward = True
