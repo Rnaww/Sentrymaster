@@ -81,6 +81,7 @@ private:
             Eigen::Vector3d v = odom_vehicle.linear().transpose() * ((odom_vehicle.translation()-last_position)/dt);
             output.twist.twist.linear.x = v.x();
             output.twist.twist.linear.y = v.y();
+            output.twist.twist.linear.z = v.z();
             output.twist.twist.angular.z = std::atan2(std::sin(yaw-last_yaw), std::cos(yaw-last_yaw))/dt;
         }
         initialized = true;
