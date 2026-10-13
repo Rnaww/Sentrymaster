@@ -1,6 +1,7 @@
 import os
+import xml.etree.ElementTree as ET
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, SetEnvironmentVariable
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution, PythonExpression
@@ -13,13 +14,20 @@ def generate_launch_description():
     gazebo = PythonExpression(["'", LaunchConfiguration('physics'), "' == 'gazebo'"])
     gazebo_server = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
-            PathJoinSubstitution([FindPackageShare('gazebo_ros'), 'launch', 'gazebo.launch.py'])
+            PathJoinSubstitution([FindPackageShare('gazebo_ros'), 'launch', 'gzserver.launch.py'])
         ]),
         condition=IfCondition(gazebo),
         launch_arguments={
             'world': os.path.join(sim_share, 'worlds', '701_navigation.world'),
-            'gui': LaunchConfiguration('gui'),
         }.items(),
+    )
+    # 沿用旧工作空间直接启动 gzclient 的写法。
+    gazebo_client = ExecuteProcess(
+        cmd=['gzclient'],
+        condition=IfCondition(PythonExpression([
+            "'", LaunchConfiguration('physics'), "' == 'gazebo' and '", LaunchConfiguration('gui'), "' == 'true'"
+        ])),
+        output='screen',
     )
     spawn_robot = Node(
         package='gazebo_ros',
@@ -28,9 +36,14 @@ def generate_launch_description():
         arguments=['-entity', 'sentry_robot', '-file', os.path.join(sim_share, 'robots', 'sentry.urdf'), '-x', '7.25', '-y', '2.05', '-z', '0.6'],
         output='screen',
     )
-    robot_description = Command([
-        'xacro ', os.path.join(get_package_share_directory('sentry_launch'), 'urdf', 'sentry_chassis.xacro')
-    ])
+    # 保留实车 Odin 安装 TF，车体、车轮和云台模型沿用旧工作空间。
+    robot = ET.parse(os.path.join(get_package_share_directory('sentry_launch'), 'urdf', 'sentry_chassis.xacro')).getroot()
+    model = ET.parse(os.path.join(sim_share, 'robots', 'sentry.urdf')).getroot()
+    for element in model:
+        if element.tag in ('link', 'joint'):
+            robot.append(element)
+    robot.append(ET.fromstring('<joint name="vehicle_to_sim_chassis" type="fixed"><parent link="vehicle"/><child link="sim_chassis_link"/></joint>'))
+    robot_description = ET.tostring(robot, encoding='unicode').replace('model://', 'file://' + os.path.join(sim_share, 'models') + '/')
     robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
@@ -67,17 +80,29 @@ def generate_launch_description():
         }],
         output='screen',
     )
+    rviz = Node(
+        package='rviz2',
+        executable='rviz2',
+        condition=IfCondition(LaunchConfiguration('rviz')),
+        arguments=['-d', os.path.join(sim_share, 'config', 'rviz_701.rviz')],
+        parameters=[{'use_sim_time': True}],
+        output='screen',
+    )
     return LaunchDescription([
         DeclareLaunchArgument('physics', default_value='kinematic'),
         DeclareLaunchArgument('realtime_factor', default_value='1.0'),
         DeclareLaunchArgument('output_file', default_value=''),
         DeclareLaunchArgument('gui', default_value='false'),
+        DeclareLaunchArgument('rviz', default_value='false'),
         SetEnvironmentVariable('GAZEBO_MODEL_PATH', os.path.join(sim_share, 'models') + ':' + os.environ.get('GAZEBO_MODEL_PATH', '')),
+        SetEnvironmentVariable('GAZEBO_MODEL_DATABASE_URI', ''),
         gazebo_server,
+        gazebo_client,
         spawn_robot,
         robot_state_publisher,
         odin_odometry,
         sentry_planner,
         sentry_decision,
         simulator,
+        rviz,
     ])

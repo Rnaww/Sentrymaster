@@ -23,7 +23,11 @@ limitations under the License.
 #include <pcl/point_cloud.h>
 
 #include <opencv2/opencv.hpp>
+#if __has_include(<cv_bridge/cv_bridge.hpp>)
 #include <cv_bridge/cv_bridge.hpp>
+#else
+#include <cv_bridge/cv_bridge.h>
+#endif
 #include <image_transport/image_transport.hpp>
 
 #include <message_filters/subscriber.h>

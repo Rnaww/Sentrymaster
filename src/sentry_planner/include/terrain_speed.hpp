@@ -6,6 +6,7 @@
 class TerrainSpeed{
 private:
     cv::Mat height_map;
+    cv::Mat clearance_map;
     double resolution;
     std::vector<double> mapBound;
 public:
@@ -17,6 +18,75 @@ public:
         resolution = node->get_parameter("globalPlanner.resolution").as_double();
         height_map = cv::imread(node->get_parameter("globalPlanner.PreDeepPath").as_string(), 0);
         if (height_map.empty()) throw std::runtime_error("701 height map is empty");
+        cv::Mat heights, valid(height_map.size(), CV_8U, cv::Scalar(255));
+        height_map.convertTo(heights, CV_64F, 0.8/255);
+        for (int i = 0; i < heights.rows; i++){
+            for (int j = 0; j < heights.cols; j++){
+                double h = heights.at<double>(i,j);
+                if (h < 0.015 || h > 0.41) valid.at<uchar>(i,j) = 0;
+                for (auto offset : {Eigen::Vector2i(1,0), Eigen::Vector2i(0,1)}){
+                    int r = i+offset.x(), c = j+offset.y();
+                    if (r < heights.rows && c < heights.cols && std::abs(h-heights.at<double>(r,c)) > 0.055){
+                        valid.at<uchar>(i,j) = 0;
+                        valid.at<uchar>(r,c) = 0;
+                    }
+                }
+            }
+        }
+        cv::distanceTransform(valid, clearance_map, cv::DIST_L2, cv::DIST_MASK_PRECISE);
+        clearance_map *= resolution;
+    }
+
+    double clearance(double x, double y){
+        int i = static_cast<int>((x-mapBound[0])/resolution);
+        int j = static_cast<int>((y-mapBound[2])/resolution);
+        if (i < 0 || j < 0 || i >= clearance_map.rows || j >= clearance_map.cols) return 0;
+        return clearance_map.at<float>(i,j);
+    }
+
+    bool navigationFree(const Eigen::Vector3d &point){
+        return clearance(point.x(),point.y()) >= 0.6-1e-7;
+    }
+
+    Eigen::Vector3d recoveryVelocity(const Eigen::Vector3d &position){
+        Eigen::Vector3d target = position;
+        double nearest = 0.3;
+        double initial = clearance(position.x(),position.y());
+        // 只恢复进入安全余量的情况；旋转车体包络加栅格误差仍须可容纳。
+        if (initial < std::hypot(0.3,0.3)+resolution/std::sqrt(2.0)) return Eigen::Vector3d::Zero();
+        int row = static_cast<int>((position.x()-mapBound[0])/resolution);
+        int col = static_cast<int>((position.y()-mapBound[2])/resolution);
+        for (int i = row-3; i <= row+3; i++){
+            for (int j = col-3; j <= col+3; j++){
+                Eigen::Vector3d point(mapBound[0]+(i+0.5)*resolution,mapBound[2]+(j+0.5)*resolution,position.z());
+                double distance = (point-position).head<2>().norm();
+                if (distance >= nearest || !navigationFree(point)) continue;
+                bool safe = true;
+                int n = std::max(1,static_cast<int>(std::ceil(distance/0.01)));
+                for (int k = 0; k <= n; k++){
+                    auto sample = position+(point-position)*static_cast<double>(k)/n;
+                    if (clearance(sample.x(),sample.y()) < initial-1e-7){ safe = false; break; }
+                }
+                if (safe){ nearest = distance; target = point; }
+            }
+        }
+        auto direction = target-position;
+        return direction.norm() > 1e-6 ? Eigen::Vector3d(direction.normalized()*0.15) : Eigen::Vector3d::Zero();
+    }
+
+    Eigen::Vector3d checkedVelocity(const Eigen::Vector3d &position, const Eigen::Vector3d &velocity){
+        double speed = velocity.head<2>().norm();
+        if (speed < 1e-6) return Eigen::Vector3d::Zero();
+        double distance = std::max(0.1,speed*0.1);
+        int n = std::max(1,static_cast<int>(std::ceil(distance/0.01)));
+        double safe_distance = 0;
+        for (int i = 1; i <= n; i++){
+            double step = distance*i/n;
+            if (!navigationFree(position+velocity/speed*step)) break;
+            safe_distance = step;
+        }
+        double limit = safe_distance >= distance-1e-6 ? speed : std::max(0.0,(safe_distance-0.02)/0.1);
+        return velocity*std::min(1.0,limit/speed);
     }
 
     double height(double x, double y){
@@ -28,7 +98,7 @@ public:
 
     double terrainLimit(double x, double y){
         double h = height(x,y);
-        double limit = (x > 14.2 && x < 16.2 && y > 2.2 && y < 6.8) ? 0.65 : 3.5;
+        double limit = (x > 14.2 && x < 16.2 && y > 2.2 && y < 6.8) ? 0.65 : 4.5;
         for (auto offset : {Eigen::Vector2d(0.3,0), Eigen::Vector2d(-0.3,0), Eigen::Vector2d(0,0.3), Eigen::Vector2d(0,-0.3)}){
             double other = height(x+offset.x(),y+offset.y());
             if (other >= 0.015 && other <= 0.41 && std::abs(other-h) > 0.015) limit = 0.45;
@@ -41,7 +111,7 @@ public:
         if (path.poses.empty()) return limit;
         auto &goal = path.poses.back().pose.position;
         double remaining = std::hypot(goal.x-position.x(),goal.y-position.y());
-        // 原末端 0.5m 减速不足以制停 3.5m/s；按同一 1.5m/s² 预算提前制动。
+        // 按 1.5m/s² 预算提前制动。
         limit = std::min(limit,std::sqrt(3.0*std::max(0.0,remaining-0.1)));
         size_t nearest = 0;
         double nearest_dis = INFINITY;

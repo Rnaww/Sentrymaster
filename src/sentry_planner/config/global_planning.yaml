@@ -114,7 +114,7 @@
 
     localOptimizer:
       # 最大飞行速度
-      MaxVelMag:                  3.5
+      MaxVelMag:                  4.5
       # 最大角速度
       MaxBdrMag:                  4.0
       # 最大倾斜角度

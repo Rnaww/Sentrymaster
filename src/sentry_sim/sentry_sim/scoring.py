@@ -1,7 +1,7 @@
 import math
 
 # 区域中心沿用 diagram；停留检测半径与主分支使用相同 map 坐标。
-POINTS = {'supply': (15.55, 1.75), 'central': (8.85, 10.05), 'trapezoid': (3.15, 3.45), 'fortress': (8.95, 2.55)}
+POINTS = {'supply': (15.45, 1.95), 'central': (8.85, 10.05), 'trapezoid': (3.35, 4.55), 'fortress': (8.95, 2.55)}
 
 class Scoring:
     def __init__(self):
@@ -22,7 +22,7 @@ class Scoring:
         self.scoring_time = 0
         self.last_time = 0
 
-    def update(self, t, x, y, speed, wz, posture, terrain_exception):
+    def update(self, t, x, y, speed, wz, posture, terrain_exception, ground_height):
         dt = max(0, min(t-self.last_time, 0.2))
         self.last_time = t
         if posture == 1: self.scoring_time += dt
@@ -34,10 +34,11 @@ class Scoring:
         self.in_supply = in_supply
         traveling = speed > 0.05 and all(math.dist((x,y), point) > 0.6 for point in POINTS.values())
         if self.spin_reward and traveling and not terrain_exception and abs(wz) < math.radians(30): self.spin_valid = False
-        if math.dist((x,y), (15.15,2.15)) < 0.6: self.rough_entered = True
-        if self.rough_entered and math.dist((x,y), (15.15,6.35)) < 0.6: self.rough_crossed = True
-        if math.dist((x,y), (4.15,6.25)) < 0.6: self.slope_entered = True
-        if self.slope_entered and math.dist((x,y), (2.75,4.55)) < 0.6: self.slope_crossed = True
+        if math.dist((x,y), (15.45,2.55)) < 0.6: self.rough_entered = True
+        if self.rough_entered and math.dist((x,y), (15.45,6.35)) < 0.6: self.rough_crossed = True
+        # 基地坡面由实际高度变化确认，不要求经过固定入口、出口点。
+        if x < 6 and 2 < y < 7 and 0.12 < ground_height < 0.29: self.slope_entered = True
+        if self.slope_entered and x < 6 and ground_height >= 0.29: self.slope_crossed = True
         for name, point in POINTS.items():
             valid = math.dist((x,y), point) <= 0.4 and speed < 0.05
             if name == 'supply': valid &= self.excursion >= 5 and int(t//60) not in self.supply_minutes

@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="sentry_robot_visual">
+    <static>true</static>
+    <link name="asset_anchor"/>
+  </model>
+</sdf>

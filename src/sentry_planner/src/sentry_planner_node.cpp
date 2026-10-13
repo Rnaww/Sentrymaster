@@ -18,7 +18,6 @@ SentryPlannerNode::SentryPlannerNode(std::string name):Node(name){
     decision_suber = create_subscription<DecisionNavMsg>("/decision2nav", 10, std::bind(&SentryPlannerNode::DecisionCallback, this, std::placeholders::_1));
     cloud_suber = create_subscription<PcdMsg>("/odin1/cloud_raw", rclcpp::SensorDataQoS(), std::bind(&SentryPlannerNode::CloudCallback, this, std::placeholders::_1));
     navigation_puber = create_publisher<ChassisControlMsg>("/navigation2mcu", 10);
-    status_puber = create_publisher<StatusMsg>("/navigation_status", 10);
     path_puber = create_publisher<nav_msgs::msg::Path>("/planned_path", 10);
     control_timer = create_wall_timer(std::chrono::milliseconds(1000 / planning_core->config->rate), std::bind(&SentryPlannerNode::control_cbk, this));
     info_log(name, "has been built!");
@@ -42,7 +41,13 @@ void SentryPlannerNode::OdomCallBack(OdomMsg::SharedPtr msg){
         }
         current_odom_pos_2d = world_vehicle.translation();
         current_odom_pos_2d.z() = 0.05;
-        yaw = std::atan2(world_vehicle.linear()(1,0), world_vehicle.linear()(0,0));
+        double new_yaw = std::atan2(world_vehicle.linear()(1,0), world_vehicle.linear()(0,0));
+        double stamp = rclcpp::Time(msg->header.stamp).seconds();
+        if (odom_stamp >= 0 && stamp > odom_stamp && stamp-odom_stamp < 0.5){
+            yaw_rate = std::atan2(std::sin(new_yaw-yaw),std::cos(new_yaw-yaw))/(stamp-odom_stamp);
+        }
+        yaw = new_yaw;
+        odom_stamp = stamp;
     }catch(const tf2::TransformException &ex){
         last_odom_time = -1;
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "TF not ready: %s", ex.what());
@@ -56,10 +61,10 @@ void SentryPlannerNode::ChassisInfoCallback(ChassisDataMsg::SharedPtr msg){
 void SentryPlannerNode::DecisionCallback(DecisionNavMsg::SharedPtr msg){
     if (!std::isfinite(msg->aim_x) || !std::isfinite(msg->aim_y) || msg->move_v < 0){
         decision.move_v = 0;
-        pub_status(StatusMsg::FAILED, "invalid target");
+        log_state("invalid target");
         return;
     }
-    if (msg->aim_x != decision.aim_x || msg->aim_y != decision.aim_y || msg->is_cross != decision.is_cross) last_state = 255;
+    if (msg->aim_x != decision.aim_x || msg->aim_y != decision.aim_y || msg->is_cross != decision.is_cross) last_reason.clear();
     decision = *msg;
     last_command_time = now().seconds();
 }
@@ -68,45 +73,47 @@ void SentryPlannerNode::CloudCallback(PcdMsg::SharedPtr msg){
     cloud = msg;
 }
 
-void SentryPlannerNode::pub_status(uint8_t state, const std::string &reason){
-    StatusMsg msg;
-    msg.aim_x = decision.aim_x;
-    msg.aim_y = decision.aim_y;
-    msg.state = state;
-    msg.reason = reason;
-    status_puber->publish(msg);
-    if (state != last_state){
-        info_log("NAV state=", static_cast<int>(state), " goal=", msg.aim_x, msg.aim_y, reason);
-        last_state = state;
+void SentryPlannerNode::log_state(const std::string &reason){
+    if (reason != last_reason){
+        info_log("NAV goal=", decision.aim_x, decision.aim_y, reason);
+        last_reason = reason;
     }
 }
 
 void SentryPlannerNode::control_cbk(){
     ChassisControlMsg chassis_cmd{};
     if (last_command_time < 0 || now().seconds()-last_command_time > command_timeout || decision.move_v == 0){
-        pub_status(StatusMsg::CANCELED, "stopped");
+        log_state("stopped");
     }else if (last_odom_time < 0 || now().seconds()-last_odom_time > odom_timeout){
-        pub_status(StatusMsg::FAILED, "odometry/TF unavailable");
+        log_state("odometry/TF unavailable");
     }else{
         Eigen::Vector3d goal(decision.aim_x, decision.aim_y, 0.05);
         double now_dis = (current_odom_pos_2d-goal).head<2>().norm();
-        if (now_dis <= planning_core->config->reach_thresh){
-            pub_status(StatusMsg::SUCCEEDED, "reached");
+        if (!terrain_speed->navigationFree(current_odom_pos_2d)){
+            Eigen::Vector3d map_v = terrain_speed->recoveryVelocity(current_odom_pos_2d)*std::min(1000.0,decision.move_v/0.15);
+            double heading = yaw+yaw_rate*std::clamp(now().seconds()-odom_stamp,0.0,0.05);
+            chassis_cmd.vx = std::cos(heading)*map_v.x()+std::sin(heading)*map_v.y();
+            chassis_cmd.vy = -std::sin(heading)*map_v.x()+std::cos(heading)*map_v.y();
+            log_state(map_v.norm() > 0 ? "restore navigation clearance" : "insufficient body clearance");
+        }else if (now_dis <= planning_core->config->reach_thresh){
+            log_state("reached");
         }else if (planning_core->plan(current_odom_pos_2d, goal, decision.is_cross)){
-            // 沿用旧前瞻方向和末端减速。MINCO 时标不作为执行时标。
+            // 沿用旧前瞻方向。MINCO 时标不作为执行时标。
             Eigen::Vector3d map_v = planning_core->getDirection();
             if (map_v.allFinite() && map_v.head<2>().norm() > 1e-6){
                 auto path = planning_core->getPath(now());
                 double new_spd = terrain_speed->getLimit(current_odom_pos_2d, path, decision.move_v/1000.0)*1000;
-                if (now_dis < planning_core->config->end_dis) new_spd *= std::pow(now_dis/planning_core->config->end_dis, planning_core->config->slow_down_pow);
+                // terrain_speed 已按制动距离限制终点速度，不再重复乘末端减速系数。
                 map_v = map_v.normalized()*new_spd;
+                map_v = terrain_speed->checkedVelocity(current_odom_pos_2d,map_v/1000)*1000;
                 // map -> vehicle，右手系，yaw 正方向逆时针。
-                chassis_cmd.vx = std::cos(yaw)*map_v.x() + std::sin(yaw)*map_v.y();
-                chassis_cmd.vy = -std::sin(yaw)*map_v.x() + std::cos(yaw)*map_v.y();
-                pub_status(StatusMsg::RUNNING, planning_core->fallback_route.empty() ? "following MINCO" : "following A*");
+                double heading = yaw+yaw_rate*std::clamp(now().seconds()-odom_stamp,0.0,0.05);
+                chassis_cmd.vx = std::cos(heading)*map_v.x() + std::sin(heading)*map_v.y();
+                chassis_cmd.vy = -std::sin(heading)*map_v.x() + std::cos(heading)*map_v.y();
+                log_state(planning_core->fallback_route.empty() ? "following MINCO" : "following A*");
                 path_puber->publish(path);
-            }else pub_status(StatusMsg::FAILED, "invalid direction");
-        }else pub_status(StatusMsg::FAILED, planning_core->last_error);
+            }else log_state("invalid direction");
+        }else log_state(planning_core->last_error);
     }
     // 包含停车时的零平移消息，UART 可继续合并决策的 wz。
     navigation_puber->publish(chassis_cmd);

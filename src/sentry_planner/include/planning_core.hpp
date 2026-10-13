@@ -11,6 +11,7 @@ public:
     std::string last_error;
     rclcpp::Node *node;
     std::vector<Eigen::Vector3d> fallback_route;
+    std::vector<Eigen::Vector3d> search_route;
     std::shared_ptr<Config> config;
     std::shared_ptr<GlobalPathPlanner> global_path_planner;
     std::shared_ptr<SFCgenerator> sfc_generator;
@@ -31,9 +32,33 @@ public:
     }
 
     bool segmentFree(const Eigen::Vector3d &a, const Eigen::Vector3d &b){
-        int n = std::max(1, static_cast<int>(std::ceil((b-a).head<2>().norm() / 0.05)));
-        for (int i = 0; i <= n; i++){
-            if (!isFree(a + (b-a) * (static_cast<double>(i)/n))) return false;
+        if (!isFree(a) || !isFree(b)) return false;
+        auto index = global_path_planner->coord2gridIndex(a);
+        auto end = global_path_planner->coord2gridIndex(b);
+        double resolution = global_path_planner->resolution_;
+        Eigen::Vector3d delta = b-a;
+        int sx = delta.x() > 0 ? 1 : -1, sy = delta.y() > 0 ? 1 : -1;
+        double tx = INFINITY, ty = INFINITY;
+        double dx = INFINITY, dy = INFINITY;
+        if (std::abs(delta.x()) > 1e-12){
+            double boundary = global_path_planner->gl_low_.x()+(index.x()+(sx > 0))*resolution;
+            tx = (boundary-a.x())/delta.x();
+            dx = resolution/std::abs(delta.x());
+        }
+        if (std::abs(delta.y()) > 1e-12){
+            double boundary = global_path_planner->gl_low_.y()+(index.y()+(sy > 0))*resolution;
+            ty = (boundary-a.y())/delta.y();
+            dy = resolution/std::abs(delta.y());
+        }
+        // 逐格检查整段，不能用固定采样间隔跳过贴近边界的小段。
+        while (index.head<2>() != end.head<2>()){
+            if (std::abs(tx-ty) < 1e-12){
+                if (!global_path_planner->isFree(index.x()+sx,index.y(),index.z()) ||
+                    !global_path_planner->isFree(index.x(),index.y()+sy,index.z())) return false;
+                index.x() += sx; index.y() += sy; tx += dx; ty += dy;
+            }else if (tx < ty){ index.x() += sx; tx += dx; }
+            else{ index.y() += sy; ty += dy; }
+            if (!global_path_planner->isFree(index)) return false;
         }
         return true;
     }
@@ -41,6 +66,7 @@ public:
     bool plan(Eigen::Vector3d start, Eigen::Vector3d goal, bool is_cross){
         local_optimizer->clear_traj();
         fallback_route.clear();
+        search_route.clear();
         start.z() = 0.05;
         goal.z() = 0.05;
         if (is_cross) global_path_planner->setObsCross();
@@ -56,6 +82,7 @@ public:
         for (size_t i = 1; i < route.size(); i++){
             if (!segmentFree(route[i-1], route[i])){ last_error = "A* segment outside free map"; return false; }
         }
+        search_route = route;
         std::vector<Eigen::Vector3d> pc, nearby_pc;
         global_path_planner->getOccupyVector(pc);
         Eigen::Vector3d low = start, high = start;
@@ -67,6 +94,32 @@ public:
             if (point.x() > low.x()-2 && point.x() < high.x()+2 &&
                 point.y() > low.y()-2 && point.y() < high.y()+2){
                 // 用网格角点表示障碍格的范围，不能只检查障碍中心。
+                double half_cell = global_path_planner->resolution_*0.5 + 0.01;
+                for (double dx : {-half_cell, half_cell}){
+                    for (double dy : {-half_cell, half_cell}){
+                        nearby_pc.emplace_back(point.x()+dx, point.y()+dy, 0.025);
+                        nearby_pc.emplace_back(point.x()+dx, point.y()+dy, 0.075);
+                    }
+                }
+            }
+        }
+        // 平滑走廊也保留 A* 该段的地形选择，不能从低地切回邻近坡面。
+        std::vector<double> route_costs;
+        for (auto &point : route) route_costs.push_back(global_path_planner->traversalCost(point));
+        auto low_index = global_path_planner->coord2gridIndex(low-Eigen::Vector3d(1,1,0));
+        auto high_index = global_path_planner->coord2gridIndex(high+Eigen::Vector3d(1,1,0));
+        for (int x = low_index.x(); x <= high_index.x(); x++){
+            for (int y = low_index.y(); y <= high_index.y(); y++){
+                Eigen::Vector3d point = global_path_planner->gridIndex2coord(Eigen::Vector3i(x,y,0));
+                if (!isFree(point)) continue;
+                size_t nearest = 0;
+                double distance = INFINITY;
+                for (size_t i = 0; i < route.size(); i++){
+                    double d = (point-route[i]).head<2>().squaredNorm();
+                    if (d < distance){ distance = d; nearest = i; }
+                }
+                // 保留路线两侧至少 0.25m 的走廊；额外限制只作用于更高代价地形。
+                if (distance <= 0.25*0.25 || global_path_planner->traversalCost(point) <= route_costs[nearest]*1.5) continue;
                 double half_cell = global_path_planner->resolution_*0.5 + 0.01;
                 for (double dx : {-half_cell, half_cell}){
                     for (double dy : {-half_cell, half_cell}){
@@ -90,6 +143,11 @@ public:
             }
         }
         if (!local_optimizer->get_trajectory(route, SFCs, global_path_planner->esdf)) return useFallback(route, "MINCO failed");
+        double route_cost = 0;
+        for (size_t i = 1; i < route.size(); i++){
+            route_cost += (route[i]-route[i-1]).norm()*global_path_planner->traversalCost((route[i]+route[i-1])*0.5);
+        }
+        double curve_cost = 0;
         // 优化成功后检查整条曲线，失败时不执行未经检查的路径。
         auto traj = local_optimizer->get_traj();
         Eigen::Vector3d last = start;
@@ -101,8 +159,19 @@ public:
                 last_error = "curve outside free map at " + std::to_string(point.x()) + "," + std::to_string(point.y()) + ",z=" + std::to_string(point.z());
                 return useFallback(route, last_error);
             }
+            size_t nearest = 0;
+            double distance = INFINITY;
+            for (size_t j = 0; j < route.size(); j++){
+                double d = (point-route[j]).head<2>().squaredNorm();
+                if (d < distance){ distance = d; nearest = j; }
+            }
+            if (distance > 0.25*0.25 && global_path_planner->traversalCost(point) > route_costs[nearest]*1.5){
+                return useFallback(route, "curve leaves selected terrain");
+            }
+            curve_cost += (point-last).head<2>().norm()*global_path_planner->traversalCost((point+last)*0.5);
             last = point;
         }
+        if (curve_cost > route_cost*1.2) return useFallback(route, "curve increases terrain cost");
         return true;
     }
 
@@ -114,9 +183,16 @@ public:
     }
 
     Eigen::Vector3d getDirection(){
-        if (fallback_route.empty()) return local_optimizer->get_v_directioin();
+        if (fallback_route.empty()){
+            auto direction = local_optimizer->get_v_directioin();
+            if (direction.allFinite() && direction.norm() > 1e-6 &&
+                segmentFree(search_route.front(),search_route.front()+direction.normalized()*0.1)) return direction;
+            useFallback(search_route,"lookahead cuts outside free map");
+        }
         Eigen::Vector3d direction = Eigen::Vector3d::Zero();
         for (auto &point : fallback_route){
+            // 前瞻连线也必须可通行，不能跳过折点直接切入障碍格。
+            if (!segmentFree(fallback_route.front(), point)) break;
             direction = point-fallback_route.front();
             if (direction.head<2>().norm() >= 0.1) break;
         }

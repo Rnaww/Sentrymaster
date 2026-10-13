@@ -13,7 +13,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/DecisionNavCmd.msg"
   "msg/NavigationMcuCmd.msg"
   "msg/DecisionMcuCmd.msg"
-  "msg/NavigationStatus.msg"
 
   DEPENDENCIES
     std_msgs
