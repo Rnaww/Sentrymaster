@@ -31,7 +31,7 @@ class SimulatorNode(Node):
         self.factor = float(self.declare_parameter('realtime_factor', 1.0).value)
         self.output_file = self.declare_parameter('output_file', '').value
         self.x = float(self.declare_parameter('robot_x', 7.25).value)
-        self.y = float(self.declare_parameter('robot_y', 2.05).value)
+        self.y = float(self.declare_parameter('robot_y', 2.70).value)
         self.yaw = float(self.declare_parameter('robot_yaw', 0.0).value)
         self.start_delay = float(self.declare_parameter('start_delay', 3.0).value)
         self.elapsed = 0

@@ -33,7 +33,7 @@ def generate_launch_description():
         package='gazebo_ros',
         executable='spawn_entity.py',
         condition=IfCondition(gazebo),
-        arguments=['-entity', 'sentry_robot', '-file', os.path.join(sim_share, 'robots', 'sentry.urdf'), '-x', '7.25', '-y', '2.05', '-z', '0.6'],
+        arguments=['-entity', 'sentry_robot', '-file', os.path.join(sim_share, 'robots', 'sentry.urdf'), '-x', '7.25', '-y', '2.70', '-z', '0.6'],
         output='screen',
     )
     # 保留实车 Odin 安装 TF，车体、车轮和云台模型沿用旧工作空间。

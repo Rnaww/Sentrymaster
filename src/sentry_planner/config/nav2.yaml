@@ -57,7 +57,7 @@ planner_server:
                 dt: 0.005
                 tracker_coef: 1e5
                 max_dv: 5e5
-                planar_max_acc: 50000.0
+                planar_max_acc: 1500.0
                 planar_lpf_hz: 20.0
                 planar_stop_speed: 30.0
                 omega: 4.71239

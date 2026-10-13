@@ -233,6 +233,54 @@ geometry_msgs::msg::TwistStamped OmniPidPursuitController::computeVelocityComman
   double lookahead_dist = getLookAheadDistance(velocity);
 
   auto carrot_pose = getLookAheadPoint(lookahead_dist, transformed_plan);
+  geometry_msgs::msg::PoseStamped map_robot;
+  if (!transformPose(costmap_ros_->getGlobalFrameID(), pose, map_robot)) {
+    throw nav2_core::PlannerException("Unable to transform robot pose for lookahead checking");
+  }
+  // A checked path can still have an unsafe shortcut from the robot to the carrot.
+  auto clear_lookahead = [&](const geometry_msgs::msg::PoseStamped & candidate) {
+    geometry_msgs::msg::PoseStamped map_goal;
+    if (!transformPose(costmap_ros_->getGlobalFrameID(), candidate, map_goal)) return false;
+    const auto & a = map_robot.pose.position;
+    const auto & b = map_goal.pose.position;
+    unsigned int mx, my, gx, gy;
+    if (!costmap->worldToMap(a.x, a.y, mx, my) ||
+      !costmap->worldToMap(b.x, b.y, gx, gy)) return false;
+    auto free_cell = [&](int x, int y) {
+      return x >= 0 && y >= 0 && x < static_cast<int>(costmap->getSizeInCellsX()) &&
+             y < static_cast<int>(costmap->getSizeInCellsY()) &&
+             costmap->getCost(x, y) < nav2_costmap_2d::INSCRIBED_INFLATED_OBSTACLE;
+    };
+    int x = mx, y = my;
+    if (!free_cell(x, y) || !free_cell(gx, gy)) return false;
+    double dx = b.x-a.x, dy = b.y-a.y, resolution = costmap->getResolution();
+    int sx = dx > 0 ? 1 : -1, sy = dy > 0 ? 1 : -1;
+    double tx = INFINITY, ty = INFINITY, step_x = INFINITY, step_y = INFINITY;
+    if (mx != gx) {
+      tx = (costmap->getOriginX()+(x+(sx > 0))*resolution-a.x)/dx;
+      step_x = resolution/std::abs(dx);
+    }
+    if (my != gy) {
+      ty = (costmap->getOriginY()+(y+(sy > 0))*resolution-a.y)/dy;
+      step_y = resolution/std::abs(dy);
+    }
+    while (x != static_cast<int>(gx) || y != static_cast<int>(gy)) {
+      if (std::abs(tx-ty) < 1e-12) {
+        if (!free_cell(x+sx, y) || !free_cell(x, y+sy)) return false;
+        x += sx; y += sy; tx += step_x; ty += step_y;
+      } else if (tx < ty) { x += sx; tx += step_x; }
+      else { y += sy; ty += step_y; }
+      if (!free_cell(x, y)) return false;
+    }
+    return true;
+  };
+  while (!clear_lookahead(carrot_pose) && lookahead_dist > costmap->getResolution()*0.5) {
+    lookahead_dist *= 0.5;
+    carrot_pose = getLookAheadPoint(lookahead_dist, transformed_plan);
+  }
+  if (!clear_lookahead(carrot_pose)) {
+    throw nav2_core::PlannerException("No traversable lookahead segment");
+  }
   carrot_pub_->publish(createCarrotMsg(carrot_pose));
 
   double lin_dist = hypot(carrot_pose.pose.position.x, carrot_pose.pose.position.y);

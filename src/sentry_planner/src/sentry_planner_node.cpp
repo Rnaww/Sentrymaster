@@ -125,6 +125,9 @@ void SentryPlannerNode::control_cbk(){
         ChassisControlMsg output{};
         output.vx = std::cos(heading)*map_v.x()+std::sin(heading)*map_v.y();
         output.vy = -std::sin(heading)*map_v.x()+std::cos(heading)*map_v.y();
+        double speed = std::hypot(output.vx,output.vy)/1000;
+        double limited = terrain_speed->limitSpeedRise(speed,now().seconds());
+        if (speed > 1e-6){ output.vx *= limited/speed; output.vy *= limited/speed; }
         navigation_puber->publish(output);
         log_state(map_v.norm() > 0 ? RUNNING : FAILED,"restore navigation clearance");
         return;
@@ -160,6 +163,9 @@ void SentryPlannerNode::control_cbk(){
             output.vy = (-std::sin(heading)*map_v.x()+std::cos(heading)*map_v.y())*1000;
         }
     }
+    double speed = std::hypot(output.vx,output.vy)/1000;
+    double limited = terrain_speed->limitSpeedRise(speed,now().seconds());
+    if (speed > 1e-6){ output.vx *= limited/speed; output.vy *= limited/speed; }
     navigation_puber->publish(output);
 
 }
