@@ -1,6 +1,7 @@
 import csv, math, os
 import rclpy
 from rclpy.node import Node
+from rclpy.executors import ExternalShutdownException
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from geometry_msgs.msg import AccelStamped
 from nav_msgs.msg import Odometry
@@ -69,7 +70,10 @@ def main(args=None):
     rclpy.init(args=args)
     node = TelemetryNode()
     try: rclpy.spin(node)
-    except KeyboardInterrupt: pass
+    except (KeyboardInterrupt, ExternalShutdownException): pass
+    except RuntimeError:
+        # 退出时 context 可能先关闭；运行期间的异常仍正常抛出。
+        if rclpy.ok(): raise
     finally:
         node.destroy_node()
         if rclpy.ok(): rclpy.shutdown()
