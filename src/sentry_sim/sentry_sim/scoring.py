@@ -1,7 +1,7 @@
 import math
 
 # 区域中心沿用 diagram；停留检测半径与主分支使用相同 map 坐标。
-POINTS = {'supply': (15.45, 1.95), 'central': (8.85, 10.05), 'trapezoid': (3.35, 4.55), 'fortress': (8.95, 2.55)}
+POINTS = {'supply': (15.45, 1.95), 'central': (8.85, 10.05), 'trapezoid': (3.35, 4.00), 'fortress': (8.95, 2.55)}
 
 class Scoring:
     def __init__(self):
@@ -10,7 +10,7 @@ class Scoring:
         self.hold_since = {}
         self.supply_minutes = set()
         self.done = set()
-        self.last_supply = (7.25, 2.05)
+        self.last_supply = (7.25, 2.70)
         self.excursion = math.dist(self.last_supply, POINTS['supply'])
         self.rough_entered = False
         self.rough_crossed = False

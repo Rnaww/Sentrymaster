@@ -45,8 +45,8 @@ bool GlobalPathPlanner::loadGrayMap(const std::string &path){
     std::memcpy(gray_grid_map,grid_,GL_SIZE_(0)*GL_SIZE_(1)*sizeof(uint8_t));
     cv::Mat heights, low, high, clearance, free_map;
     img_read.convertTo(heights, CV_64F, 0.8/255);
-    cv::erode(heights, low, cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(9,9)));
-    cv::dilate(heights, high, cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(9,9)));
+    cv::erode(heights, low, cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(11,11)));
+    cv::dilate(heights, high, cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(11,11)));
     cv::Mat binary(GL_SIZE_(0), GL_SIZE_(1), CV_8U, binary_grid_map);
     cv::compare(binary, 0, free_map, cv::CMP_EQ);
     cv::distanceTransform(free_map, clearance, cv::DIST_L2, cv::DIST_MASK_PRECISE);
@@ -56,16 +56,10 @@ bool GlobalPathPlanner::loadGrayMap(const std::string &path){
             auto point = gridIndex2coord(Eigen::Vector3i(i,j,0));
             double limit = (point.x() > 14.2 && point.x() < 16.2 && point.y() > 2.2 && point.y() < 6.8) ? 0.65 : 4.5;
             double h = heights.at<double>(i,j);
-            for (auto offset : {Eigen::Vector2i(3,0), Eigen::Vector2i(-3,0), Eigen::Vector2i(0,3), Eigen::Vector2i(0,-3)}){
-                int r = i+offset.x(), c = j+offset.y();
-                if (r >= 0 && r < x && c >= 0 && c < y){
-                    double other = heights.at<double>(r,c);
-                    if (other >= 0.015 && other <= 0.41 && std::abs(other-h) > 0.015) limit = 0.45;
-                }
-            }
-            // 以秒/米计价，非必需的爬坡和狭窄留边会自然被绕开。
+            if (high.at<double>(i,j)-low.at<double>(i,j) > 0.015) limit = 0.45;
+            // 通行图已留边 0.60m，近障惩罚再加 0.10m 正则项，避免重复强罚。
             terrain_cost.at<double>(i,j) = 1/limit + 30*(high.at<double>(i,j)-low.at<double>(i,j)) +
-                std::max(0.0,h-0.1) + 0.3/(clearance.at<float>(i,j)*resolution_+0.1);
+                std::max(0.0,h-0.1) + 0.3/(clearance.at<float>(i,j)*resolution_+0.7);
         }
     }
     delete[] grid_;

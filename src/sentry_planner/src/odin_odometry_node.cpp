@@ -5,7 +5,7 @@
 class OdinOdometryNode : public rclcpp::Node{
 public:
     OdinOdometryNode():Node("odin_odometry_node"){
-        initial_pose = declare_parameter<std::vector<double>>("initial_pose", {7.25, 2.05, 0.0});
+        initial_pose = declare_parameter<std::vector<double>>("initial_pose", {7.25, 2.70, 0.0});
         align_initial_pose = declare_parameter("align_initial_pose", true);
         use_odin_map_tf = declare_parameter("use_odin_map_tf", false);
         if (initial_pose.size() != 3) throw std::runtime_error("initial_pose needs x, y, yaw");

@@ -116,5 +116,8 @@ void SentryPlannerNode::control_cbk(){
         }else log_state(planning_core->last_error);
     }
     // 包含停车时的零平移消息，UART 可继续合并决策的 wz。
+    double speed = std::hypot(chassis_cmd.vx,chassis_cmd.vy)/1000;
+    double limited = terrain_speed->limitSpeedRise(speed,now().seconds());
+    if (speed > 1e-6){ chassis_cmd.vx *= limited/speed; chassis_cmd.vy *= limited/speed; }
     navigation_puber->publish(chassis_cmd);
 }

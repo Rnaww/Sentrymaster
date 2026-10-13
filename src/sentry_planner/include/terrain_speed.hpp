@@ -7,6 +7,8 @@ class TerrainSpeed{
 private:
     cv::Mat height_map;
     cv::Mat clearance_map;
+    cv::Mat terrain_speed_map;
+    double max_acc, previous_speed = 0, last_speed_time = -1;
     double resolution;
     std::vector<double> mapBound;
 public:
@@ -14,6 +16,9 @@ public:
         if (!node->has_parameter("MapBound")) node->declare_parameter<std::vector<double>>("MapBound", {-25,25,-25,25,0,0.1});
         if (!node->has_parameter("globalPlanner.resolution")) node->declare_parameter("globalPlanner.resolution", 0.1);
         if (!node->has_parameter("globalPlanner.PreDeepPath")) node->declare_parameter("globalPlanner.PreDeepPath", "");
+        if (!node->has_parameter("velocityTracker.planar_max_acc")) node->declare_parameter("velocityTracker.planar_max_acc", 1500.0);
+        max_acc = node->get_parameter("velocityTracker.planar_max_acc").as_double()/1000;
+        if (!std::isfinite(max_acc) || max_acc <= 0) throw std::runtime_error("planar_max_acc must be positive");
         mapBound = node->get_parameter("MapBound").as_double_array();
         resolution = node->get_parameter("globalPlanner.resolution").as_double();
         height_map = cv::imread(node->get_parameter("globalPlanner.PreDeepPath").as_string(), 0);
@@ -35,6 +40,20 @@ public:
         }
         cv::distanceTransform(valid, clearance_map, cv::DIST_L2, cv::DIST_MASK_PRECISE);
         clearance_map *= resolution;
+        // 旋转包络约 0.424m，加栅格误差后按半径 0.5m 检查整个车体地形。
+        cv::Mat low, high;
+        auto footprint = cv::getStructuringElement(cv::MORPH_ELLIPSE,cv::Size(11,11));
+        cv::erode(heights,low,footprint);
+        cv::dilate(heights,high,footprint);
+        terrain_speed_map = cv::Mat(heights.size(),CV_64F);
+        for (int i = 0; i < heights.rows; i++){
+            for (int j = 0; j < heights.cols; j++){
+                double x = mapBound[0]+(i+0.5)*resolution, y = mapBound[2]+(j+0.5)*resolution;
+                double limit = (x > 14.2 && x < 16.2 && y > 2.2 && y < 6.8) ? 0.65 : 4.5;
+                if (high.at<double>(i,j)-low.at<double>(i,j) > 0.015) limit = 0.45;
+                terrain_speed_map.at<double>(i,j) = limit;
+            }
+        }
     }
 
     double clearance(double x, double y){
@@ -97,13 +116,18 @@ public:
     }
 
     double terrainLimit(double x, double y){
-        double h = height(x,y);
-        double limit = (x > 14.2 && x < 16.2 && y > 2.2 && y < 6.8) ? 0.65 : 4.5;
-        for (auto offset : {Eigen::Vector2d(0.3,0), Eigen::Vector2d(-0.3,0), Eigen::Vector2d(0,0.3), Eigen::Vector2d(0,-0.3)}){
-            double other = height(x+offset.x(),y+offset.y());
-            if (other >= 0.015 && other <= 0.41 && std::abs(other-h) > 0.015) limit = 0.45;
-        }
-        return limit;
+        int i = static_cast<int>((x-mapBound[0])/resolution);
+        int j = static_cast<int>((y-mapBound[2])/resolution);
+        if (i < 0 || j < 0 || i >= terrain_speed_map.rows || j >= terrain_speed_map.cols) return 0;
+        return terrain_speed_map.at<double>(i,j);
+    }
+
+    double limitSpeedRise(double speed, double time){
+        double dt = last_speed_time < 0 ? 0.01 : std::clamp(time-last_speed_time,0.0,0.05);
+        last_speed_time = time;
+        // 增速按加速度预算执行；安全限速和停车仍立即生效。
+        previous_speed = std::min(speed,previous_speed+max_acc*dt);
+        return previous_speed;
     }
 
     double getLimit(const Eigen::Vector3d &position, const nav_msgs::msg::Path &path, double requested){
@@ -111,8 +135,8 @@ public:
         if (path.poses.empty()) return limit;
         auto &goal = path.poses.back().pose.position;
         double remaining = std::hypot(goal.x-position.x(),goal.y-position.y());
-        // 按 1.5m/s² 预算提前制动。
-        limit = std::min(limit,std::sqrt(3.0*std::max(0.0,remaining-0.1)));
+        // 按 YAML 的平移加速度预算提前制动。
+        limit = std::min(limit,std::sqrt(2*max_acc*std::max(0.0,remaining-0.1)));
         size_t nearest = 0;
         double nearest_dis = INFINITY;
         for (size_t i = 0; i < path.poses.size(); i++){
@@ -134,7 +158,7 @@ public:
             points.push_back(point);
             distances.push_back(distance);
             double terrain = terrainLimit(p.x,p.y);
-            limit = std::min(limit, std::sqrt(terrain*terrain+3.0*std::max(0.0,distance-0.4)));
+            limit = std::min(limit, std::sqrt(terrain*terrain+2*max_acc*std::max(0.0,distance-0.4)));
             if (points.size() >= 3){
                 auto a = points[points.size()-3], b = points[points.size()-2], c = points.back();
                 auto ab = b-a, ac = c-a;
@@ -144,7 +168,7 @@ public:
                     if (curvature > 1e-5){
                         double curve_speed = std::sqrt(0.35/curvature);
                         double ahead = std::max(0.0,distances[distances.size()-2]-0.4);
-                        limit = std::min(limit,std::sqrt(curve_speed*curve_speed+3.0*ahead));
+                        limit = std::min(limit,std::sqrt(curve_speed*curve_speed+2*max_acc*ahead));
                     }
                 }
             }

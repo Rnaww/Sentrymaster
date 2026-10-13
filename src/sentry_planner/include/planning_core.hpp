@@ -40,12 +40,12 @@ public:
         int sx = delta.x() > 0 ? 1 : -1, sy = delta.y() > 0 ? 1 : -1;
         double tx = INFINITY, ty = INFINITY;
         double dx = INFINITY, dy = INFINITY;
-        if (std::abs(delta.x()) > 1e-12){
+        if (index.x() != end.x()){
             double boundary = global_path_planner->gl_low_.x()+(index.x()+(sx > 0))*resolution;
             tx = (boundary-a.x())/delta.x();
             dx = resolution/std::abs(delta.x());
         }
-        if (std::abs(delta.y()) > 1e-12){
+        if (index.y() != end.y()){
             double boundary = global_path_planner->gl_low_.y()+(index.y()+(sy > 0))*resolution;
             ty = (boundary-a.y())/delta.y();
             dy = resolution/std::abs(delta.y());
