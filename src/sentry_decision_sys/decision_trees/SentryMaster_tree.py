@@ -116,14 +116,17 @@ class SupplyTimeAvailable(py_trees.behaviour.Behaviour):
         super().__init__('检查第4次补给时间')
         self.node = node
         self.fortress_leg = fortress_leg
+        self.available = None
 
     def update(self):
         node = self.node
-        # 裁判时间是整数秒，另计收包年龄；返程先按去程快20%作乐观估计。
-        elapsed = node.elapsed+1+max(0,node.time_now()-node.recv_times['referee'])
-        distance = math.hypot(node.x-S[0],node.y-S[1])
-        travel = max(distance/4.5,self.fortress_leg.travel_time*0.8)
-        if elapsed+travel+5.5 <= 240: return py_trees.common.Status.SUCCESS
+        if self.available is None:
+            # 裁判时间是整数秒，另计收包年龄；返程先按去程快20%作乐观估计。
+            elapsed = node.elapsed+1+max(0,node.time_now()-node.recv_times['referee'])
+            distance = math.hypot(node.x-S[0],node.y-S[1])
+            travel = max(distance/4.5,self.fortress_leg.travel_time*0.8)
+            self.available = elapsed+travel+5.5 <= 240
+        if self.available: return py_trees.common.Status.SUCCESS
         return py_trees.common.Status.FAILURE
 
 def create_SentryMaster_tree(node):
