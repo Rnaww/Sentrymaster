@@ -15,4 +15,5 @@
   <export>
     <build_type>ament_cmake</build_type>
   </export>
+  <exec_depend>sentry_record</exec_depend>
 </package>

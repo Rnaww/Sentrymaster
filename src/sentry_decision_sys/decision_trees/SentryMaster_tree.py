@@ -82,14 +82,14 @@ class Hold(py_trees.behaviour.Behaviour):
         node.goal = self.point
         node.is_cross = False
         node.move_v = 0
-        # 制动期间仍在行驶，保持小陀螺，停稳后再执行停留要求。
+        # 制动仍遵循地形禁转；停稳后执行停留要求。
         node.wz = self.spin if node.linear_speed < 0.05 else 90
         node.posture = 1
         if node.elapsed >= self.deadline:
             self.complete = True
             return py_trees.common.Status.SUCCESS
         valid = math.hypot(node.x-self.point[0], node.y-self.point[1]) <= 0.4 and node.linear_speed < 0.05
-        valid = valid and (not self.spin or abs(node.actual_wz) >= math.radians(30))
+        valid = valid and (not self.spin or node.disable_spin or (not node.terrain_no_spin and abs(node.actual_wz) >= math.radians(30)))
         now = node.time_now()
         if valid:
             if self.stable_since is None: self.stable_since = now
@@ -113,18 +113,18 @@ def create_SentryMaster_tree(node):
         Navigate(node, '启动到补给1', S),
         Hold(node, '补给1', S, 5.5, deadline=60, supply=True),
         Navigate(node, '起伏入口', U0, speed=650, deadline=180, reach_thresh=0.35),
-        Navigate(node, '通过起伏路段', U1, speed=650, spin=90, is_cross=True, deadline=180, reach_thresh=0.35),
+        Navigate(node, '通过起伏路段', U1, speed=650, spin=0, is_cross=True, deadline=180, reach_thresh=0.35),
         Navigate(node, '中央高地', C, deadline=180),
         Hold(node, '中央高地停留', C, 20.5, deadline=180),
         Navigate(node, '中央返回起伏出口', U1, reach_thresh=0.35),
-        Navigate(node, '返回起伏入口', U0, speed=650, is_cross=True, reach_thresh=0.35),
+        Navigate(node, '返回起伏入口', U0, speed=650, spin=0, is_cross=True, reach_thresh=0.35),
         Navigate(node, '返回补给2', S, speed=650),
         Hold(node, '补给2', S, 5.5, earliest=60, deadline=120, supply=True),
         Navigate(node, '梯形高地', T, is_cross=True, deadline=180),
         Hold(node, '梯形高地停留', T, 20.5, deadline=180),
         Navigate(node, '返回补给3', S),
         Hold(node, '补给3', S, 5.5, earliest=120, deadline=180, supply=True),
-        Navigate(node, '堡垒中央', F),
+        Navigate(node, '堡垒中央', F, reach_thresh=0.04),
         Hold(node, '堡垒旋转停留', F, 20.5, earliest=180, spin=90),
         Navigate(node, '返回补给4', S),
         Hold(node, '补给4', S, 5.5, earliest=180, deadline=240, supply=True),

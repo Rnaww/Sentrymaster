@@ -1,5 +1,7 @@
 """Launch the sentry decision behaviour-tree node."""
 
+import os
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -17,6 +19,7 @@ def generate_launch_description() -> LaunchDescription:
                 executable="sentry_decision_node",
                 name="sentry_decision_node",
                 output="both",
+                parameters=[os.path.join(get_package_share_directory("sentry_decision_sys"), "config", "decision.yaml")],
             ),
         ]
     )

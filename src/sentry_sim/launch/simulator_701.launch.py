@@ -1,4 +1,4 @@
-import os
+import os, yaml
 import xml.etree.ElementTree as ET
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, SetEnvironmentVariable
@@ -11,6 +11,9 @@ from ament_index_python.packages import get_package_share_directory
 
 def generate_launch_description():
     sim_share = get_package_share_directory('sentry_sim')
+    decision_params = os.path.join(get_package_share_directory('sentry_decision_sys'), 'config', 'decision.yaml')
+    with open(decision_params) as file:
+        decision_config = yaml.safe_load(file)['/sentry_decision_node']['ros__parameters']
     gazebo = PythonExpression(["'", LaunchConfiguration('physics'), "' == 'gazebo'"])
     gazebo_server = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -19,6 +22,7 @@ def generate_launch_description():
         condition=IfCondition(gazebo),
         launch_arguments={
             'world': os.path.join(sim_share, 'worlds', '701_navigation.world'),
+            'params_file': os.path.join(sim_share, 'config', 'gazebo.yaml'),
         }.items(),
     )
     # 沿用旧工作空间直接启动 gzclient 的写法。
@@ -53,7 +57,7 @@ def generate_launch_description():
         package='sentry_planner',
         executable='odin_odometry_node',
         name='odin_odometry_node',
-        parameters=[{'use_sim_time': True, 'align_initial_pose': False}],
+        parameters=[{'use_sim_time': True}],
         output='screen',
     )
     sentry_planner = IncludeLaunchDescription(
@@ -66,7 +70,7 @@ def generate_launch_description():
         package='sentry_decision_sys',
         executable='sentry_decision_node',
         name='sentry_decision_node',
-        parameters=[{'use_sim_time': True}],
+        parameters=[decision_params, {'use_sim_time': True}],
         output='both',
     )
     simulator = Node(
@@ -75,6 +79,7 @@ def generate_launch_description():
         name='sentry_simulator',
         parameters=[{
             'physics': LaunchConfiguration('physics'),
+            'spin_resume_delay': decision_config['spin_resume_delay'],
             'realtime_factor': LaunchConfiguration('realtime_factor'),
             'output_file': LaunchConfiguration('output_file'),
         }],
@@ -88,7 +93,18 @@ def generate_launch_description():
         parameters=[{'use_sim_time': True}],
         output='screen',
     )
+    recorder = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            PathJoinSubstitution([FindPackageShare('sentry_record'), 'launch', 'record.launch.py'])
+        ]),
+        condition=IfCondition(LaunchConfiguration('record')),
+        launch_arguments={'use_sim_time': 'true', 'record_directory': LaunchConfiguration('record_directory')}.items(),
+    )
+
     return LaunchDescription([
+        DeclareLaunchArgument('record', default_value='false'),
+        DeclareLaunchArgument('record_directory', default_value=os.path.join(os.getcwd(),'recordings')),
+        recorder,
         DeclareLaunchArgument('physics', default_value='kinematic'),
         DeclareLaunchArgument('realtime_factor', default_value='1.0'),
         DeclareLaunchArgument('output_file', default_value=''),
