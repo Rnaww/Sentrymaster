@@ -1,4 +1,4 @@
-import os
+import os, yaml
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
@@ -8,6 +8,9 @@ from ament_index_python.packages import get_package_share_directory
 def generate_launch_description():
     planner_share = get_package_share_directory('sentry_planner')
     nav_params = os.path.join(planner_share, 'config', 'nav2.yaml')
+    global_params = os.path.join(planner_share, 'config', 'global_planning.yaml')
+    with open(global_params) as file:
+        planner_config = yaml.safe_load(file)['/sentry_planner_node']['ros__parameters']
     map_dir = os.path.join(planner_share, 'map', '701_model')
     use_sim_time = LaunchConfiguration('use_sim_time')
     map_server = Node(
@@ -27,6 +30,8 @@ def generate_launch_description():
             'SentryMinco.globalPlanner.PreMapPath': os.path.join(map_dir, '701_navigation.png'),
             'SentryMinco.globalPlanner.PreCrossPath': os.path.join(map_dir, '701_navigation.png'),
             'SentryMinco.globalPlanner.PreDeepPath': os.path.join(map_dir, 'new_701_deep.png'),
+            'SentryMinco.terrainSpeed': planner_config['terrainSpeed'],
+            'SentryMinco.velocityTracker.planar_max_acc': planner_config['velocityTracker']['planar_max_acc'],
         }],
     )
     controller_server = Node(
@@ -60,7 +65,7 @@ def generate_launch_description():
         executable='sentry_planner_node',
         name='sentry_planner_node',
         output='screen',
-        parameters=[os.path.join(planner_share, 'config', 'global_planning.yaml'), {'use_sim_time': use_sim_time, 'globalPlanner.PreDeepPath': os.path.join(map_dir, 'new_701_deep.png')}],
+        parameters=[global_params, {'use_sim_time': use_sim_time, 'globalPlanner.PreDeepPath': os.path.join(map_dir, 'new_701_deep.png')}],
     )
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='false'),

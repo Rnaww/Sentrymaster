@@ -104,6 +104,13 @@ public:
         if (is_cross) global_path_planner->setObsCross();
         else global_path_planner->resetObs();
         if (!isFree(start) || !isFree(goal)){ last_error = "occupied start/goal"; return false; }
+        // 跨地形先对正，再执行逐格检查的直线，避免平滑切角或绕出通道。
+        if (is_cross){
+            if (!segmentFree(start,goal)){ last_error = "crossing line outside free map"; return false; }
+            fallback_route = {start,goal};
+            search_route = fallback_route;
+            return true;
+        }
         std::vector<Eigen::Vector3d> route;
         if (!global_path_planner->GetPath(route, start, goal)){ last_error = "A* failed"; return false; }
         if ((route.back()-goal).head<2>().norm() > 0.2){ last_error = "partial A* path"; return false; }

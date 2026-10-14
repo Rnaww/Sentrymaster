@@ -120,14 +120,13 @@ void SentryPlannerNode::control_cbk(){
     bool odom_valid = last_odom >= 0 && now().seconds()-last_odom < odom_timeout;
     if (command_valid && odom_valid && !terrain_speed->navigationFree(position)){
         if (!recovering){ cancel_goal(); recovering = true; }
-        Eigen::Vector3d map_v = terrain_speed->recoveryVelocity(position)*std::min(1000.0,decision.move_v/0.15);
+        Eigen::Vector3d map_v = terrain_speed->recoveryVelocity(position)*std::min(1.0,decision.move_v/150.0);
+        // 净空恢复是安全动作，不延续此前朝向障碍的速度。
+        terrain_speed->acceptVelocity(map_v);
         double heading = yaw+yaw_rate*std::clamp(now().seconds()-odom_stamp,0.0,0.05);
         ChassisControlMsg output{};
-        output.vx = std::cos(heading)*map_v.x()+std::sin(heading)*map_v.y();
-        output.vy = -std::sin(heading)*map_v.x()+std::cos(heading)*map_v.y();
-        double speed = std::hypot(output.vx,output.vy)/1000;
-        double limited = terrain_speed->limitSpeedRise(speed,now().seconds());
-        if (speed > 1e-6){ output.vx *= limited/speed; output.vy *= limited/speed; }
+        output.vx = (std::cos(heading)*map_v.x()+std::sin(heading)*map_v.y())*1000;
+        output.vy = (-std::sin(heading)*map_v.x()+std::cos(heading)*map_v.y())*1000;
         navigation_puber->publish(output);
         log_state(map_v.norm() > 0 ? RUNNING : FAILED,"restore navigation clearance");
         return;
@@ -149,6 +148,7 @@ void SentryPlannerNode::control_cbk(){
     limit_msg.percentage = false;
     speed_puber->publish(limit_msg);
     ChassisControlMsg output{};
+    Eigen::Vector3d map_velocity = Eigen::Vector3d::Zero();
     if (command_valid && odom_valid && state == RUNNING && last_velocity >= 0 && now().seconds()-last_velocity < 0.2){
         // 按速度产生时的 yaw 还原 map 方向，再补偿自旋期间的定位延迟。
         double speed = std::hypot(velocity.linear.x, velocity.linear.y);
@@ -157,15 +157,17 @@ void SentryPlannerNode::control_cbk(){
         if (std::isfinite(speed)){
             Eigen::Vector3d map_v(std::cos(velocity_yaw)*velocity.linear.x-std::sin(velocity_yaw)*velocity.linear.y,
                                   std::sin(velocity_yaw)*velocity.linear.x+std::cos(velocity_yaw)*velocity.linear.y,0);
-            map_v = terrain_speed->checkedVelocity(position,map_v*scale);
-            double heading = yaw+yaw_rate*std::clamp(now().seconds()-odom_stamp,0.0,0.05);
-            output.vx = (std::cos(heading)*map_v.x()+std::sin(heading)*map_v.y())*1000;
-            output.vy = (-std::sin(heading)*map_v.x()+std::cos(heading)*map_v.y())*1000;
+            map_velocity = map_v*scale;
         }
     }
-    double speed = std::hypot(output.vx,output.vy)/1000;
-    double limited = terrain_speed->limitSpeedRise(speed,now().seconds());
-    if (speed > 1e-6){ output.vx *= limited/speed; output.vy *= limited/speed; }
+    bool emergency = !odom_valid || last_command < 0 || now().seconds()-last_command >= command_timeout ||
+                     (command_valid && (state != RUNNING || last_velocity < 0 || now().seconds()-last_velocity >= 0.2));
+    map_velocity = terrain_speed->limitVelocity(map_velocity,now().seconds(),emergency);
+    map_velocity = terrain_speed->checkedVelocity(position,map_velocity);
+    terrain_speed->acceptVelocity(map_velocity);
+    double heading = yaw+yaw_rate*std::clamp(now().seconds()-odom_stamp,0.0,0.05);
+    output.vx = (std::cos(heading)*map_velocity.x()+std::sin(heading)*map_velocity.y())*1000;
+    output.vy = (-std::sin(heading)*map_velocity.x()+std::cos(heading)*map_velocity.y())*1000;
     navigation_puber->publish(output);
 
 }

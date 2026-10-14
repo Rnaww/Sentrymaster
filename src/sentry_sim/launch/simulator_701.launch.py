@@ -57,8 +57,15 @@ def generate_launch_description():
         package='sentry_planner',
         executable='odin_odometry_node',
         name='odin_odometry_node',
-        parameters=[{'use_sim_time': True}],
+        parameters=[{'use_sim_time': True, 'use_odin_map_tf': True}],
         output='screen',
+    )
+    # Gazebo 世界已与地图对齐，不用实车的首次位姿初始化重设高度。
+    map_to_odom = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        arguments=['--frame-id', 'map', '--child-frame-id', 'odom'],
+        parameters=[{'use_sim_time': True}],
     )
     sentry_planner = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -116,6 +123,7 @@ def generate_launch_description():
         gazebo_client,
         spawn_robot,
         robot_state_publisher,
+        map_to_odom,
         odin_odometry,
         sentry_planner,
         sentry_decision,

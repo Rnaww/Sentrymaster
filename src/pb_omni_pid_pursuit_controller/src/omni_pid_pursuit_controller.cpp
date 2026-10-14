@@ -530,7 +530,7 @@ double OmniPidPursuitController::getLookAheadDistance(const geometry_msgs::msg::
   double lookahead_dist = lookahead_dist_;
 
   if (use_velocity_scaled_lookahead_dist_) {
-    lookahead_dist = hypot(speed.linear.x, speed.linear.y) * lookahead_time_;
+    lookahead_dist = std::max(hypot(speed.linear.x, speed.linear.y), speed_limit_) * lookahead_time_;
     lookahead_dist = std::clamp(lookahead_dist, min_lookahead_dist_, max_lookahead_dist_);
   }
 

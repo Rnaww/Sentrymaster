@@ -54,9 +54,8 @@ bool GlobalPathPlanner::loadGrayMap(const std::string &path){
     for (int i = 0; i < x; i++){
         for (int j = 0; j < y; j++){
             auto point = gridIndex2coord(Eigen::Vector3i(i,j,0));
-            double limit = (point.x() > 14.2 && point.x() < 16.2 && point.y() > 2.2 && point.y() < 6.8) ? 0.65 : 4.5;
+            double limit = (point.x() > 14.2 && point.x() < 16.2 && point.y() > 2.2 && point.y() < 6.8) ? 2.0 : 4.5;
             double h = heights.at<double>(i,j);
-            if (high.at<double>(i,j)-low.at<double>(i,j) > 0.015) limit = 0.45;
             // 通行图已留边 0.60m，近障惩罚再加 0.10m 正则项，避免重复强罚。
             terrain_cost.at<double>(i,j) = 1/limit + 30*(high.at<double>(i,j)-low.at<double>(i,j)) +
                 std::max(0.0,h-0.1) + 0.3/(clearance.at<float>(i,j)*resolution_+0.7);

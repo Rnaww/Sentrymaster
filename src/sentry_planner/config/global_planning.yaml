@@ -63,6 +63,13 @@
       # 退打目标点距离当前点的最小网格数量
       back_goal_search_grid_num:    10
 
+    # 上坡独立速度、起伏速度及转弯横向加速度，单位 m/s、m/s²。
+    # 下坡沿用正常速度预算，不单独设置限速。
+    terrainSpeed:
+      uphill_speed:              2.0
+      rough_speed:               2.0
+      lateral_acc:               1.0
+
     # 底盘朝向控制器参数
     chassisDirectionController:
       Kp: 2.0

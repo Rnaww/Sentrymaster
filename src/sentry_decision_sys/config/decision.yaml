@@ -1,6 +1,9 @@
 /sentry_decision_node:
   ros__parameters:
-    # true: 关闭所有小陀螺，包括堡垒停留。false: 平地开启，起伏及坡面关闭。
+    # true: 关闭所有小陀螺，包括堡垒停留；仍允许过坡对正。false: 平地开启，起伏及坡面关闭。
     disable_spin: false
     # 地形恢复平坦后确认的时间，单位秒。
     spin_resume_delay: 0.5
+    # 移动时无进展检测，停留及入口对正不计入。
+    no_progress_timeout: 3.0
+    navigation_retries: 2

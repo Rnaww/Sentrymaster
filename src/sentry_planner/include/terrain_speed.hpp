@@ -7,12 +7,19 @@ class TerrainSpeed{
 private:
     cv::Mat height_map;
     cv::Mat clearance_map;
-    cv::Mat terrain_speed_map;
-    double max_acc, previous_speed = 0, last_speed_time = -1;
+    rclcpp::Node *node;
+    double uphill_speed, rough_speed, lateral_acc;
+    Eigen::Vector3d previous_velocity = Eigen::Vector3d::Zero();
+    double max_acc, last_speed_time = -1;
     double resolution;
     std::vector<double> mapBound;
 public:
-    TerrainSpeed(rclcpp::Node *node){
+    TerrainSpeed(rclcpp::Node *node):node(node){
+        uphill_speed = node->declare_parameter("terrainSpeed.uphill_speed", 2.0);
+        rough_speed = node->declare_parameter("terrainSpeed.rough_speed", 2.0);
+        lateral_acc = node->declare_parameter("terrainSpeed.lateral_acc", 1.0);
+        if (uphill_speed <= 0 || rough_speed <= 0 || lateral_acc <= 0 ||
+            !std::isfinite(uphill_speed+rough_speed+lateral_acc)) throw std::runtime_error("terrain speed parameters must be positive");
         if (!node->has_parameter("MapBound")) node->declare_parameter<std::vector<double>>("MapBound", {-25,25,-25,25,0,0.1});
         if (!node->has_parameter("globalPlanner.resolution")) node->declare_parameter("globalPlanner.resolution", 0.1);
         if (!node->has_parameter("globalPlanner.PreDeepPath")) node->declare_parameter("globalPlanner.PreDeepPath", "");
@@ -40,20 +47,8 @@ public:
         }
         cv::distanceTransform(valid, clearance_map, cv::DIST_L2, cv::DIST_MASK_PRECISE);
         clearance_map *= resolution;
-        // 旋转包络约 0.424m，加栅格误差后按半径 0.5m 检查整个车体地形。
-        cv::Mat low, high;
-        auto footprint = cv::getStructuringElement(cv::MORPH_ELLIPSE,cv::Size(11,11));
-        cv::erode(heights,low,footprint);
-        cv::dilate(heights,high,footprint);
-        terrain_speed_map = cv::Mat(heights.size(),CV_64F);
-        for (int i = 0; i < heights.rows; i++){
-            for (int j = 0; j < heights.cols; j++){
-                double x = mapBound[0]+(i+0.5)*resolution, y = mapBound[2]+(j+0.5)*resolution;
-                double limit = (x > 14.2 && x < 16.2 && y > 2.2 && y < 6.8) ? 0.65 : 4.5;
-                if (high.at<double>(i,j)-low.at<double>(i,j) > 0.015) limit = 0.45;
-                terrain_speed_map.at<double>(i,j) = limit;
-            }
-        }
+        info_log("TERRAIN YAML: uphill_speed=", uphill_speed, " rough_speed=", rough_speed,
+                 " lateral_acc=", lateral_acc, " planar_max_acc=", max_acc);
     }
 
     double clearance(double x, double y){
@@ -96,7 +91,7 @@ public:
     Eigen::Vector3d checkedVelocity(const Eigen::Vector3d &position, const Eigen::Vector3d &velocity){
         double speed = velocity.head<2>().norm();
         if (speed < 1e-6) return Eigen::Vector3d::Zero();
-        double distance = std::max(0.1,speed*0.1);
+        double distance = std::max(0.1,speed*0.1+speed*speed/(2*max_acc));
         auto direction = velocity/speed;
         auto end = position+direction*distance;
         int row = static_cast<int>((position.x()-mapBound[0])/resolution);
@@ -132,7 +127,7 @@ public:
             else{ col += sy; ty += step_y; }
             if (!free_cell(row,col)){ safe_distance = crossing; break; }
         }
-        double limit = safe_distance >= distance-1e-6 ? speed : std::max(0.0,(safe_distance-0.02)/0.1);
+        double limit = safe_distance >= distance-1e-6 ? speed : std::max(0.0,std::sqrt(max_acc*max_acc*0.01+2*max_acc*std::max(0.0,safe_distance-0.02))-max_acc*0.1);
         return velocity*std::min(1.0,limit/speed);
     }
 
@@ -143,107 +138,132 @@ public:
         return height_map.at<uchar>(i,j)*0.8/255;
     }
 
-    double terrainLimit(double x, double y){
-        int i = static_cast<int>((x-mapBound[0])/resolution);
-        int j = static_cast<int>((y-mapBound[2])/resolution);
-        if (i < 0 || j < 0 || i >= terrain_speed_map.rows || j >= terrain_speed_map.cols) return 0;
-        return terrain_speed_map.at<double>(i,j);
+    bool onRoughTerrain(double x, double y){
+        return x > 14.2 && x < 16.2 && y > 2.2 && y < 6.8;
     }
 
-    double limitSpeedRise(double speed, double time){
+    double terrainLimit(double x, double y){
+        return onRoughTerrain(x,y) ? rough_speed : 4.5;
+    }
+
+    Eigen::Vector3d limitVelocity(const Eigen::Vector3d &velocity, double time, bool emergency=false){
         double dt = last_speed_time < 0 ? 0.01 : std::clamp(time-last_speed_time,0.0,0.05);
         last_speed_time = time;
-        // 增速按加速度预算执行；安全限速和停车仍立即生效。
-        previous_speed = std::min(speed,previous_speed+max_acc*dt);
-        return previous_speed;
+        if (emergency){ previous_velocity.setZero(); return previous_velocity; }
+        Eigen::Vector3d change = velocity-previous_velocity;
+        if (change.norm() > max_acc*dt && change.norm() > 1e-9) change *= max_acc*dt/change.norm();
+        previous_velocity += change;
+        return previous_velocity;
     }
 
-    // 几何路线的从静止到静止行驶预算；不包含 PID、目标切换和任务停留。
-    double estimateTime(const nav_msgs::msg::Path &path, double &length){
-        length = 0;
-        std::vector<Eigen::Vector2d> points;
-        for (auto &pose : path.poses){
-            Eigen::Vector2d point(pose.pose.position.x,pose.pose.position.y);
-            if (points.empty()){ points.push_back(point); continue; }
-            Eigen::Vector2d start = points.back();
-            double distance = (point-start).norm();
-            if (distance < 1e-6) continue;
-            int n = std::max(1,static_cast<int>(std::ceil(distance/0.1)));
-            for (int i = 1; i <= n; i++) points.push_back(start+(point-start)*static_cast<double>(i)/n);
-        }
-        if (points.size() < 2) return 0;
-        if (points.size() == 2) points.insert(points.begin()+1,(points.front()+points.back())*0.5);
-        std::vector<double> speeds(points.size());
-        for (size_t i = 0; i < points.size(); i++) speeds[i] = terrainLimit(points[i].x(),points[i].y());
-        for (size_t i = 1; i+1 < points.size(); i++){
-            Eigen::Vector2d ab = points[i]-points[i-1], ac = points[i+1]-points[i-1];
-            double denominator = ab.norm()*ac.norm()*(points[i+1]-points[i]).norm();
-            if (denominator < 1e-9) continue;
-            double curvature = 2*std::abs(ab.x()*ac.y()-ab.y()*ac.x())/denominator;
-            if (curvature > 1e-5) speeds[i] = std::min(speeds[i],std::sqrt(0.35/curvature));
-        }
-        speeds.front() = 0;
-        speeds.back() = 0;
-        for (size_t i = 1; i < points.size(); i++){
-            double distance = (points[i]-points[i-1]).norm();
-            length += distance;
-            speeds[i] = std::min(speeds[i],std::sqrt(speeds[i-1]*speeds[i-1]+2*max_acc*distance));
-        }
-        for (size_t i = points.size()-1; i > 0; i--){
-            double distance = (points[i]-points[i-1]).norm();
-            speeds[i-1] = std::min(speeds[i-1],std::sqrt(speeds[i]*speeds[i]+2*max_acc*distance));
-        }
-        double time = 0;
-        for (size_t i = 1; i < points.size(); i++){
-            time += 2*(points[i]-points[i-1]).norm()/(speeds[i]+speeds[i-1]);
-        }
-        return time;
-    }
-
-    double getLimit(const Eigen::Vector3d &position, const nav_msgs::msg::Path &path, double requested){
-        double limit = std::min(requested, terrainLimit(position.x(),position.y()));
-        if (path.poses.empty()) return limit;
-        auto &goal = path.poses.back().pose.position;
-        double remaining = std::hypot(goal.x-position.x(),goal.y-position.y());
-        // 按 YAML 的平移加速度预算提前制动。
-        limit = std::min(limit,std::sqrt(2*max_acc*std::max(0.0,remaining-0.01)));
-        size_t nearest = 0;
-        double nearest_dis = INFINITY;
-        for (size_t i = 0; i < path.poses.size(); i++){
-            auto &p = path.poses[i].pose.position;
-            double distance = std::hypot(p.x-position.x(),p.y-position.y());
-            if (distance < nearest_dis){ nearest = i; nearest_dis = distance; }
-        }
-        std::vector<Eigen::Vector2d> points;
-        std::vector<double> distances;
-        points.emplace_back(position.x(),position.y());
-        distances.push_back(0);
-        double distance = 0;
-        for (size_t i = nearest; i < path.poses.size(); i++){
-            auto &p = path.poses[i].pose.position;
-            Eigen::Vector2d point(p.x,p.y);
-            double step = (point-points.back()).norm();
-            if (step < 0.15 && i+1 < path.poses.size()) continue;
-            distance += step;
-            points.push_back(point);
-            distances.push_back(distance);
-            double terrain = terrainLimit(p.x,p.y);
-            limit = std::min(limit, std::sqrt(terrain*terrain+2*max_acc*std::max(0.0,distance-0.4)));
-            if (points.size() >= 3){
-                auto a = points[points.size()-3], b = points[points.size()-2], c = points.back();
-                auto ab = b-a, ac = c-a;
-                double denominator = ab.norm()*ac.norm()*(c-b).norm();
+    std::vector<double> speedProfile(const std::vector<Eigen::Vector3d> &points, const std::vector<double> &distances, double requested, bool terminal){
+        std::vector<double> speeds(points.size(),requested);
+        for (size_t i = 0; i < points.size(); i++){
+            speeds[i] = std::min(speeds[i],terrainLimit(points[i].x(),points[i].y()));
+            size_t a = std::lower_bound(distances.begin(),distances.end(),std::max(0.0,distances[i]-0.3))-distances.begin();
+            size_t b = std::min(static_cast<size_t>(std::lower_bound(distances.begin(),distances.end(),distances[i]+0.3)-distances.begin()),points.size()-1);
+            // 只对沿行驶方向升高的路段使用上坡速度；下坡不另设限速。
+            if (!onRoughTerrain(points[i].x(),points[i].y()) &&
+                height(points[b].x(),points[b].y())-height(points[a].x(),points[a].y()) > 0.01){
+                speeds[i] = std::min(speeds[i],uphill_speed);
+            }
+            if (a < i && i < b){
+                auto ab = points[i]-points[a], ac = points[b]-points[a];
+                double denominator = ab.head<2>().norm()*ac.head<2>().norm()*(points[b]-points[i]).head<2>().norm();
                 if (denominator > 1e-6){
                     double curvature = 2*std::abs(ab.x()*ac.y()-ab.y()*ac.x())/denominator;
-                    if (curvature > 1e-5){
-                        double curve_speed = std::sqrt(0.35/curvature);
-                        double ahead = std::max(0.0,distances[distances.size()-2]-0.4);
-                        limit = std::min(limit,std::sqrt(curve_speed*curve_speed+2*max_acc*ahead));
-                    }
+                    if (curvature > 1e-5) speeds[i] = std::min(speeds[i],std::sqrt(lateral_acc/curvature));
                 }
             }
-            if (distance > 5) break;
         }
-        return std::max(0.0,limit);
+        if (terminal) speeds.back() = 0;
+        for (size_t i = speeds.size()-1; i > 0; i--){
+            speeds[i-1] = std::min(speeds[i-1],std::sqrt(speeds[i]*speeds[i]+2*max_acc*(distances[i]-distances[i-1])));
+        }
+        return speeds;
+    }
+
+    void acceptVelocity(const Eigen::Vector3d &velocity){ previous_velocity = velocity; }
+
+    double getLimit(const Eigen::Vector3d &position, const nav_msgs::msg::Path &path, double requested){
+        double cap = std::min(requested,terrainLimit(position.x(),position.y()));
+        if (path.poses.empty()) return std::max(0.0,cap);
+        size_t nearest = 0;
+        double nearest_dis = INFINITY;
+        Eigen::Vector3d projection = position;
+        // 曲率沿规划路径计算，车体的小幅侧向误差不是路径的急弯。
+        for (size_t i = 1; i < path.poses.size(); i++){
+            auto &a = path.poses[i-1].pose.position, &b = path.poses[i].pose.position;
+            Eigen::Vector3d start(a.x,a.y,position.z()), end(b.x,b.y,position.z());
+            auto delta = end-start;
+            double ratio = delta.squaredNorm() > 1e-12 ? std::clamp((position-start).dot(delta)/delta.squaredNorm(),0.0,1.0) : 0;
+            Eigen::Vector3d point = start+delta*ratio;
+            double distance = (point-position).squaredNorm();
+            if (distance < nearest_dis){ nearest = i; nearest_dis = distance; projection = point; }
+        }
+        std::vector<Eigen::Vector3d> points{projection};
+        std::vector<double> distances{0};
+        double distance = 0;
+        bool terminal = true;
+        for (size_t i = nearest; i < path.poses.size(); i++){
+            auto &p = path.poses[i].pose.position;
+            Eigen::Vector3d target(p.x,p.y,position.z());
+            Eigen::Vector3d begin = points.back();
+            double length = (target-begin).head<2>().norm();
+            if (length < 1e-6) continue;
+            int n = std::max(1,static_cast<int>(std::ceil(length/0.1)));
+            for (int j = 1; j <= n; j++){
+                auto point = begin+(target-begin)*static_cast<double>(j)/n;
+                distance += (point-points.back()).head<2>().norm();
+                points.push_back(point); distances.push_back(distance);
+            }
+            if (distance >= 5 && i+1 < path.poses.size()){ terminal = false; break; }
+        }
+        if (points.size() < 2){
+            auto &goal = path.poses.back().pose.position;
+            Eigen::Vector3d target(goal.x,goal.y,position.z());
+            double remaining = (target-position).norm();
+            if (remaining < 1e-6) return 0;
+            points = {position,target}; distances = {0,remaining};
+        }
+        auto speeds = speedProfile(points,distances,requested,terminal);
+        cap = std::min(cap,speeds.front());
+        RCLCPP_INFO_THROTTLE(node->get_logger(), *node->get_clock(), 2000,
+                            "SPEED: requested=%.2f allowed=%.2f m/s, uphill=%.2f rough=%.2f lateral_acc=%.2f",
+                            requested, cap, uphill_speed, rough_speed, lateral_acc);
+        return std::max(0.0,cap);
+    }
+    double estimateTime(const nav_msgs::msg::Path &path, double &length){
+        length = 0;
+        if (path.poses.size() < 2) return 0;
+        std::vector<Eigen::Vector3d> points;
+        std::vector<double> distances;
+        for (auto &pose : path.poses){
+            Eigen::Vector3d point(pose.pose.position.x,pose.pose.position.y,0);
+            if (points.empty()){ points.push_back(point); distances.push_back(0); continue; }
+            auto begin = points.back();
+            double step = (point-begin).norm();
+            if (step < 1e-6) continue;
+            int n = std::max(1,static_cast<int>(std::ceil(step/0.1)));
+            for (int i = 1; i <= n; i++){
+                auto sample = begin+(point-begin)*static_cast<double>(i)/n;
+                length += (sample-points.back()).norm();
+                points.push_back(sample); distances.push_back(length);
+            }
+        }
+        if (points.size() < 2) return 0;
+        if (points.size() == 2){ points.insert(points.begin()+1,(points.front()+points.back())*0.5); distances.insert(distances.begin()+1,length*0.5); }
+        auto speeds = speedProfile(points,distances,4.5,true);
+        speeds.front() = 0;
+        for (size_t i = 1; i < speeds.size(); i++){
+            speeds[i] = std::min(speeds[i],std::sqrt(speeds[i-1]*speeds[i-1]+2*max_acc*(distances[i]-distances[i-1])));
+        }
+        double seconds = 0;
+        for (size_t i = 1; i < speeds.size(); i++){
+            double distance = distances[i]-distances[i-1];
+            double sum = speeds[i]+speeds[i-1];
+            if (distance > 1e-9) seconds += sum > 1e-9 ? 2*distance/sum : 2*std::sqrt(distance/max_acc);
+        }
+        return seconds;
     }
 };
