@@ -62,7 +62,7 @@ class DecisionNode(Node):
 
     def inputs_valid(self):
         now = self.time_now()
-        return 'referee' in self.inputs and 'odom' in self.inputs and 0 < self.inputs['referee'].game_time <= 300 and now-self.recv_times['referee'] < 1 and now-self.recv_times['odom'] < 0.5
+        return 'referee' in self.inputs and 'odom' in self.inputs and self.inputs['referee'].game_time > 0 and now-self.recv_times['referee'] < 1 and now-self.recv_times['odom'] < 0.5
 
     def referee_callback(self, msg : RefereeData) -> None:
         self.inputs['referee'] = msg
