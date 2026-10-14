@@ -1,4 +1,5 @@
-import rclpy, math, time, json, os
+import rclpy, math, time, json, os, signal
+from rclpy.signals import SignalHandlerOptions
 import xml.etree.ElementTree as ET
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
@@ -296,13 +297,24 @@ class SimulatorNode(Node):
                 with open(self.output_file,'w') as f: json.dump(result,f,ensure_ascii=False,indent=2);f.write('\n')
 
 def main(args=None):
-    rclpy.init(args=args)
+    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
     node = SimulatorNode()
-    try: rclpy.spin(node)
+    stopped = False
+    def request_stop(signum, frame):
+        nonlocal stopped
+        stopped = True
+    signal.signal(signal.SIGINT, request_stop)
+    signal.signal(signal.SIGTERM, request_stop)
+    executor = rclpy.get_global_executor()
+    executor.add_node(node)
+    try:
+        while rclpy.ok() and not stopped:
+            executor.spin_once(timeout_sec=0.1)
     except (KeyboardInterrupt, ExternalShutdownException): pass
     except RuntimeError:
         # 退出时 context 可能先关闭；运行期间的异常仍正常抛出。
         if rclpy.ok(): raise
     finally:
+        executor.remove_node(node)
         node.destroy_node()
         if rclpy.ok(): rclpy.shutdown()
