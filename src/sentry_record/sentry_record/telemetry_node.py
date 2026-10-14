@@ -1,5 +1,6 @@
-import csv, math, os
+import csv, math, os, signal
 import rclpy
+from rclpy.signals import SignalHandlerOptions
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 from rclpy.qos import QoSProfile, DurabilityPolicy
@@ -67,13 +68,24 @@ class TelemetryNode(Node):
         super().destroy_node()
 
 def main(args=None):
-    rclpy.init(args=args)
+    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
     node = TelemetryNode()
-    try: rclpy.spin(node)
+    stopped = False
+    def request_stop(signum, frame):
+        nonlocal stopped
+        stopped = True
+    signal.signal(signal.SIGINT, request_stop)
+    signal.signal(signal.SIGTERM, request_stop)
+    executor = rclpy.get_global_executor()
+    executor.add_node(node)
+    try:
+        while rclpy.ok() and not stopped:
+            executor.spin_once(timeout_sec=0.1)
     except (KeyboardInterrupt, ExternalShutdownException): pass
     except RuntimeError:
         # 退出时 context 可能先关闭；运行期间的异常仍正常抛出。
         if rclpy.ok(): raise
     finally:
+        executor.remove_node(node)
         node.destroy_node()
         if rclpy.ok(): rclpy.shutdown()
