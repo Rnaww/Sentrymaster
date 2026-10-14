@@ -29,7 +29,8 @@ class Terrain:
     def spin_allowed(self, x, y, vx=0, vy=0):
         # 行驶增加 0.1m 缓冲，避免拐弯后方向变化及反馈延迟导致坡面残留旋转。
         # 停稳使用实际包络，堡垒平顶能正常旋转。
-        radius = 6 if math.hypot(vx,vy) > 0.01 else 5
+        # 与停留节点的0.05m/s停稳标准一致，微小定位抖动不触发行驶缓冲。
+        radius = 6 if math.hypot(vx,vy) >= 0.05 else 5
         return all(self.flat(x+vx*0.1*t,y+vy*0.1*t,radius) for t in [0,0.5,1])
 
 def rotate_vector(q, v):
