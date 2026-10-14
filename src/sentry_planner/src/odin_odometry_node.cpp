@@ -49,19 +49,21 @@ private:
         }
         double stamp = rclcpp::Time(msg->header.stamp).seconds();
         if (initialized && stamp <= last_stamp) return;
+        double yaw = std::atan2(odom_vehicle.linear()(1,0), odom_vehicle.linear()(0,0));
         if (!initialized && !use_odin_map_tf){
             Eigen::Affine3d map_odom = Eigen::Affine3d::Identity();
             if (align_initial_pose){
-                Eigen::Affine3d map_vehicle = Eigen::Affine3d::Identity();
-                map_vehicle.linear() = Eigen::AngleAxisd(initial_pose[2], Eigen::Vector3d::UnitZ()).toRotationMatrix();
-                map_vehicle.translation() = Eigen::Vector3d(initial_pose[0], initial_pose[1], 0);
-                map_odom = map_vehicle * odom_vehicle.inverse();
+                // 只对齐 yaw，保留重力方向；初始横滚、俯仰不能倾斜整张地图。
+                map_odom.linear() = Eigen::AngleAxisd(initial_pose[2]-yaw, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+                map_odom.translation() = Eigen::Vector3d(initial_pose[0], initial_pose[1], 0)-map_odom.linear()*odom_vehicle.translation();
             }
             auto map_tf = tf2::eigenToTransform(map_odom);
             map_tf.header.stamp = msg->header.stamp;
             map_tf.header.frame_id = "map";
             map_tf.child_frame_id = "odom";
             static_tf_puber->sendTransform(map_tf);
+            info_log("ODOM initial vehicle: position=", odom_vehicle.translation().transpose(),
+                     " quaternion(x,y,z,w)=", Eigen::Quaterniond(odom_vehicle.linear()).coeffs().transpose());
         }
         auto odin_tf = tf2::eigenToTransform(odom_odin);
         odin_tf.header = msg->header;
@@ -75,7 +77,6 @@ private:
         output.pose.pose.position.y = vehicle_tf.transform.translation.y;
         output.pose.pose.position.z = vehicle_tf.transform.translation.z;
         output.pose.pose.orientation = vehicle_tf.transform.rotation;
-        double yaw = std::atan2(odom_vehicle.linear()(1,0), odom_vehicle.linear()(0,0));
         // Nav2 使用水平底盘系；vehicle 的完整姿态仍保留在里程计中。
         auto planar_tf = vehicle_tf;
         planar_tf.header = msg->header;
