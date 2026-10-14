@@ -16,7 +16,9 @@ class Terrain:
         # 车体旋转包络加栅格误差，半径约 0.5m。
         dx = max(14.2-x,0,x-16.2)
         dy = max(2.2-y,0,y-6.8)
-        if dx*dx+dy*dy <= (radius*0.1)**2: return False
+        # 补给区停稳时仍检查完整车体高度；行驶时保留起伏路段禁转缓冲。
+        supply_stopped = radius == 5 and math.hypot(x-15.45,y-1.95) <= 0.4
+        if dx*dx+dy*dy <= (radius*0.1)**2 and not supply_stopped: return False
         row,col = int((x+25)/0.1),int((y+25)/0.1)
         heights = []
         for i,j in self.offsets[radius]:
