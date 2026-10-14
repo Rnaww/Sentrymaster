@@ -63,6 +63,18 @@ public:
         return true;
     }
 
+    double routeDistance(const std::vector<Eigen::Vector3d> &route, const Eigen::Vector3d &point, size_t &nearest){
+        double distance = INFINITY;
+        for (size_t i = 1; i < route.size(); i++){
+            Eigen::Vector3d delta = route[i]-route[i-1];
+            if (delta.squaredNorm() < 1e-12) continue;
+            double t = std::clamp((point-route[i-1]).dot(delta)/delta.squaredNorm(),0.0,1.0);
+            double d = (point-route[i-1]-t*delta).head<2>().squaredNorm();
+            if (d < distance){ distance = d; nearest = t < 0.5 ? i-1 : i; }
+        }
+        return distance;
+    }
+
     bool plan(Eigen::Vector3d start, Eigen::Vector3d goal, bool is_cross){
         local_optimizer->clear_traj();
         fallback_route.clear();
@@ -72,17 +84,11 @@ public:
         if (is_cross) global_path_planner->setObsCross();
         else global_path_planner->resetObs();
         if (!isFree(start) || !isFree(goal)){ last_error = "occupied start/goal"; return false; }
-        // 跨地形先对正，再执行逐格检查的直线，避免平滑切角或绕出通道。
-        if (is_cross){
-            if (!segmentFree(start,goal)){ last_error = "crossing line outside free map"; return false; }
-            fallback_route = {start,goal};
-            search_route = fallback_route;
-            return true;
-        }
         std::vector<Eigen::Vector3d> route;
         if (!global_path_planner->GetPath(route, start, goal)){ last_error = "A* failed"; return false; }
         if ((route.back()-goal).head<2>().norm() > 0.2){ last_error = "partial A* path"; return false; }
-        route.insert(route.begin(), global_path_planner->gridIndex2coord(global_path_planner->coord2gridIndex(start)));
+        // 能直达搜索首点时，不插入可能位于车后方的栅格中心。
+        if (!segmentFree(start,route.front())) route.insert(route.begin(), global_path_planner->gridIndex2coord(global_path_planner->coord2gridIndex(start)));
         route.insert(route.begin(), start);
         route.push_back(goal);
         for (auto &point : route) point.z() = 0.05;
@@ -120,13 +126,10 @@ public:
                 Eigen::Vector3d point = global_path_planner->gridIndex2coord(Eigen::Vector3i(x,y,0));
                 if (!isFree(point)) continue;
                 size_t nearest = 0;
-                double distance = INFINITY;
-                for (size_t i = 0; i < route.size(); i++){
-                    double d = (point-route[i]).head<2>().squaredNorm();
-                    if (d < distance){ distance = d; nearest = i; }
-                }
-                // 保留路线两侧至少 0.25m 的走廊；额外限制只作用于更高代价地形。
-                if (distance <= 0.25*0.25 || global_path_planner->traversalCost(point) <= route_costs[nearest]*1.5) continue;
+                double distance = routeDistance(route,point,nearest);
+                // 路线两侧 0.25m 内不增加地形限制，走廊总偏移限制为 0.4m。
+                // 走廊围绕搜索线段，防止 MINCO 在同代价平地上大幅绕行。
+                if (distance <= 0.4*0.4 && (distance <= 0.25*0.25 || global_path_planner->traversalCost(point) <= route_costs[nearest]*1.5)) continue;
                 double half_cell = global_path_planner->resolution_*0.5 + 0.01;
                 for (double dx : {-half_cell, half_cell}){
                     for (double dy : {-half_cell, half_cell}){
@@ -167,11 +170,8 @@ public:
                 return useFallback(route, last_error);
             }
             size_t nearest = 0;
-            double distance = INFINITY;
-            for (size_t j = 0; j < route.size(); j++){
-                double d = (point-route[j]).head<2>().squaredNorm();
-                if (d < distance){ distance = d; nearest = j; }
-            }
+            double distance = routeDistance(route,point,nearest);
+            if (distance > 0.42*0.42) return useFallback(route, "curve deviates from search corridor");
             if (distance > 0.25*0.25 && global_path_planner->traversalCost(point) > route_costs[nearest]*1.5){
                 return useFallback(route, "curve leaves selected terrain");
             }
@@ -182,9 +182,42 @@ public:
         return true;
     }
 
+    std::vector<Eigen::Vector3d> roundCorners(const std::vector<Eigen::Vector3d> &route){
+        if (route.size() < 3) return route;
+        std::vector<Eigen::Vector3d> curve{route.front()};
+        for (size_t i = 1; i+1 < route.size(); i++){
+            Eigen::Vector3d incoming = route[i]-route[i-1], outgoing = route[i+1]-route[i];
+            double radius = std::min({0.4,incoming.norm()*0.45,outgoing.norm()*0.45});
+            bool accepted = false;
+            for (int attempt = 0; radius > 0.002 && attempt < 6; attempt++, radius *= 0.5){
+                Eigen::Vector3d a = route[i]-incoming.normalized()*radius;
+                Eigen::Vector3d b = route[i]+outgoing.normalized()*radius;
+                std::vector<Eigen::Vector3d> corner{a};
+                int n = std::max(4,static_cast<int>(std::ceil(2*radius/0.02)));
+                for (int j = 1; j <= n; j++){
+                    double t = static_cast<double>(j)/n;
+                    corner.push_back((1-t)*(1-t)*a+2*t*(1-t)*route[i]+t*t*b);
+                }
+                bool free = segmentFree(curve.back(),a);
+                double cost_limit = std::max({global_path_planner->traversalCost(route[i-1]),global_path_planner->traversalCost(route[i]),global_path_planner->traversalCost(route[i+1])})*1.5;
+                for (size_t j = 1; free && j < corner.size(); j++){
+                    free = segmentFree(corner[j-1],corner[j]) && global_path_planner->traversalCost(corner[j]) <= cost_limit;
+                }
+                if (!free) continue;
+                curve.insert(curve.end(),corner.begin(),corner.end());
+                accepted = true;
+                break;
+            }
+            if (!accepted) curve.push_back(route[i]);
+        }
+        curve.push_back(route.back());
+        return curve;
+    }
+
     bool useFallback(const std::vector<Eigen::Vector3d> &route, const std::string &reason){
         local_optimizer->clear_traj();
-        fallback_route = route;
+        // 优化失败仍保留安全回退；能通过检查的折角做圆滑过渡。
+        fallback_route = roundCorners(route);
         RCLCPP_WARN_THROTTLE(node->get_logger(), *node->get_clock(), 2000, "Use checked A* path: %s", reason.c_str());
         return true;
     }

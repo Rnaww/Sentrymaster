@@ -118,7 +118,7 @@ void SentryPlannerNode::control_cbk(){
     if (!recovering || emergency) map_velocity = terrain_speed->limitVelocity(map_velocity,now().seconds(),emergency);
     if (terrain_speed->navigationFree(current_odom_pos_2d)) map_velocity = terrain_speed->checkedVelocity(current_odom_pos_2d,map_velocity);
     terrain_speed->acceptVelocity(map_velocity);
-    double heading = yaw+yaw_rate*std::clamp(now().seconds()-odom_stamp,0.0,0.05);
+    double heading = yaw+yaw_rate*std::clamp(now().seconds()-odom_stamp,0.0,odom_timeout);
     chassis_cmd.vx = (std::cos(heading)*map_velocity.x()+std::sin(heading)*map_velocity.y())*1000;
     chassis_cmd.vy = (-std::sin(heading)*map_velocity.x()+std::cos(heading)*map_velocity.y())*1000;
     navigation_puber->publish(chassis_cmd);
