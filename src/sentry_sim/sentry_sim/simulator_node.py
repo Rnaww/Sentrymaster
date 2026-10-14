@@ -33,6 +33,8 @@ class SimulatorNode(Node):
         self.factor = float(self.declare_parameter('realtime_factor', 1.0).value)
         self.spin_resume_delay = float(self.declare_parameter('spin_resume_delay', 0.5).value)
         self.last_terrain_unsafe = 0
+        self.last_terrain_position = None
+        self.last_terrain_stamp = 0
         self.output_file = self.declare_parameter('output_file', '').value
         self.x = float(self.declare_parameter('robot_x', 7.25).value)
         self.y = float(self.declare_parameter('robot_y', 2.70).value)
@@ -262,7 +264,16 @@ class SimulatorNode(Node):
                 if not self.in_terrain_spin:
                     self.terrain_spin_events.append({'time':self.elapsed,'x':self.x,'y':self.y,'wz_degps':math.degrees(actual_wz)})
             self.in_terrain_spin = terrain_spin
-        if not self.terrain.spin_allowed(self.x,self.y,world_v[0],world_v[1]): self.last_terrain_unsafe = self.clock_time
+        # 位姿差分与瞬时速度都来自物理模型；减速时也保留合理的提前禁转。
+        pose_v = world_v
+        pose_dt = self.clock_time-self.last_terrain_stamp
+        if self.last_terrain_position is not None and 0 < pose_dt < 0.5:
+            pose_v = ((self.x-self.last_terrain_position[0])/pose_dt,(self.y-self.last_terrain_position[1])/pose_dt)
+        if self.clock_time > self.last_terrain_stamp:
+            self.last_terrain_position = (self.x,self.y)
+            self.last_terrain_stamp = self.clock_time
+        if not self.terrain.spin_allowed(self.x,self.y,world_v[0],world_v[1]) or not self.terrain.spin_allowed(self.x,self.y,pose_v[0],pose_v[1]):
+            self.last_terrain_unsafe = self.clock_time
         exception = self.clock_time-self.last_terrain_unsafe < self.spin_resume_delay+0.1
         if self.start_time is not None and self.elapsed < 300: self.judge.update(self.elapsed,self.x,self.y,speed,actual_wz,self.posture,exception,self.ground(self.x,self.y))
         if len(self.judge.events) != self.last_event_count:
