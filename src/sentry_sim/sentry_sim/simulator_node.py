@@ -1,4 +1,5 @@
 import rclpy, math, time, json, os
+import xml.etree.ElementTree as ET
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 from ament_index_python.packages import get_package_share_directory
@@ -13,10 +14,6 @@ from PIL import Image
 from .scoring import Scoring
 from sentry_decision_sys.terrain import Terrain
 
-# 与原 URDF 的 odin1_base_link -> vehicle 完全互逆。
-FIXED_TRANSLATION = (0.16797, -0.17893, -0.00451)
-FIXED_ROTATION = (-math.sqrt(0.5), math.sqrt(0.5), 0, 0)
-
 def multiply(a, b):
     x,y,z,w = a
     X,Y,Z,W = b
@@ -25,6 +22,14 @@ def multiply(a, b):
 def rotate(q, p):
     value = multiply(multiply(q, (*p,0)), (-q[0],-q[1],-q[2],q[3]))
     return value[:3]
+
+# 仿真传感器安装关系直接读取共用 URDF，不另用近似角度和手写偏移。
+origin = ET.parse(os.path.join(get_package_share_directory('sentry_launch'),'urdf','sentry_chassis.xacro')).find('./joint[@name="vehicle_to_odin"]/origin')
+roll,pitch,yaw = [float(v)/2 for v in origin.get('rpy').split()]
+sr,cr,sp,cp,sy,cy = math.sin(roll),math.cos(roll),math.sin(pitch),math.cos(pitch),math.sin(yaw),math.cos(yaw)
+q = (sr*cp*cy-cr*sp*sy,cr*sp*cy+sr*cp*sy,cr*cp*sy-sr*sp*cy,cr*cp*cy+sr*sp*sy)
+FIXED_ROTATION = (-q[0],-q[1],-q[2],q[3])
+FIXED_TRANSLATION = tuple(-v for v in rotate(FIXED_ROTATION,tuple(float(v) for v in origin.get('xyz').split())))
 
 class SimulatorNode(Node):
     def __init__(self):
