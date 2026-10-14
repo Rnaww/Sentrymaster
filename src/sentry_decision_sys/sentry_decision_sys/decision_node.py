@@ -23,6 +23,12 @@ class DecisionNode(Node):
         self.terrain = Terrain(os.path.join(get_package_share_directory('sentry_planner'), 'map', '701_model', 'new_701_deep.png'))
         self.terrain_clear_since = None
         self.terrain_no_spin = True
+        self.no_progress_timeout = float(self.declare_parameter('no_progress_timeout', 3.0).value)
+        self.navigation_retries = int(self.declare_parameter('navigation_retries', 2).value)
+        self.aim_chassis_yaw = None
+        self.aligning = False
+        self.passage_exit = self.passage_yaw = None
+        self.yaw = 0
         self.inputs = {}
         self.recv_times = {}
         self.goal = B
@@ -83,6 +89,9 @@ class DecisionNode(Node):
         world_v = rotate_vector(msg.pose.pose.orientation,(v.x,v.y,v.z))
         world_v = rotate_vector(trans.transform.rotation,world_v)
         self.world_vx,self.world_vy = world_v[0],world_v[1]
+        front = rotate_vector(msg.pose.pose.orientation,(1,0,0))
+        front = rotate_vector(trans.transform.rotation,front)
+        self.yaw = math.atan2(front[1],front[0])
         self.inputs['odom'] = msg
         self.recv_times['odom'] = self.time_now()
 
@@ -90,6 +99,11 @@ class DecisionNode(Node):
         self.inputs['chassis'] = msg
 
     def spin_command(self, requested):
+        if self.aim_chassis_yaw is not None:
+            error = math.atan2(math.sin(self.aim_chassis_yaw-self.yaw),math.cos(self.aim_chassis_yaw-self.yaw))
+            # 对正和跨越纠偏不属于持续小陀螺；右手系，逆时针为正。
+            limit = 60 if self.aligning else 15
+            return max(-limit,min(limit,math.degrees(2*error)))
         return 0 if self.disable_spin or self.terrain_no_spin else requested
 
     def update_terrain(self):

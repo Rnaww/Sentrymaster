@@ -82,6 +82,8 @@ void SentryPlannerNode::log_state(const std::string &reason){
 
 void SentryPlannerNode::control_cbk(){
     ChassisControlMsg chassis_cmd{};
+    Eigen::Vector3d map_velocity = Eigen::Vector3d::Zero();
+    bool recovering = false;
     if (last_command_time < 0 || now().seconds()-last_command_time > command_timeout || decision.move_v == 0){
         log_state("stopped");
     }else if (last_odom_time < 0 || now().seconds()-last_odom_time > odom_timeout){
@@ -91,9 +93,8 @@ void SentryPlannerNode::control_cbk(){
         double now_dis = (current_odom_pos_2d-goal).head<2>().norm();
         if (!terrain_speed->navigationFree(current_odom_pos_2d)){
             Eigen::Vector3d map_v = terrain_speed->recoveryVelocity(current_odom_pos_2d)*std::min(1000.0,decision.move_v/0.15);
-            double heading = yaw+yaw_rate*std::clamp(now().seconds()-odom_stamp,0.0,0.05);
-            chassis_cmd.vx = std::cos(heading)*map_v.x()+std::sin(heading)*map_v.y();
-            chassis_cmd.vy = -std::sin(heading)*map_v.x()+std::cos(heading)*map_v.y();
+            map_velocity = map_v/1000.0;
+            recovering = true;
             log_state(map_v.norm() > 0 ? "restore navigation clearance" : "insufficient body clearance");
         }else if (now_dis <= planning_core->config->reach_thresh){
             log_state("reached");
@@ -106,18 +107,19 @@ void SentryPlannerNode::control_cbk(){
                 // terrain_speed 已按制动距离限制终点速度，不再重复乘末端减速系数。
                 map_v = map_v.normalized()*new_spd;
                 map_v = terrain_speed->checkedVelocity(current_odom_pos_2d,map_v/1000)*1000;
-                // map -> vehicle，右手系，yaw 正方向逆时针。
-                double heading = yaw+yaw_rate*std::clamp(now().seconds()-odom_stamp,0.0,0.05);
-                chassis_cmd.vx = std::cos(heading)*map_v.x() + std::sin(heading)*map_v.y();
-                chassis_cmd.vy = -std::sin(heading)*map_v.x() + std::cos(heading)*map_v.y();
+                map_velocity = map_v/1000.0;
                 log_state(planning_core->fallback_route.empty() ? "following MINCO" : "following A*");
                 path_puber->publish(path);
             }else log_state("invalid direction");
         }else log_state(planning_core->last_error);
     }
-    // 包含停车时的零平移消息，UART 可继续合并决策的 wz。
-    double speed = std::hypot(chassis_cmd.vx,chassis_cmd.vy)/1000;
-    double limited = terrain_speed->limitSpeedRise(speed,now().seconds());
-    if (speed > 1e-6){ chassis_cmd.vx *= limited/speed; chassis_cmd.vy *= limited/speed; }
+    bool emergency = last_command_time < 0 || now().seconds()-last_command_time > command_timeout ||
+                     last_odom_time < 0 || now().seconds()-last_odom_time > odom_timeout;
+    if (!recovering || emergency) map_velocity = terrain_speed->limitVelocity(map_velocity,now().seconds(),emergency);
+    if (terrain_speed->navigationFree(current_odom_pos_2d)) map_velocity = terrain_speed->checkedVelocity(current_odom_pos_2d,map_velocity);
+    terrain_speed->acceptVelocity(map_velocity);
+    double heading = yaw+yaw_rate*std::clamp(now().seconds()-odom_stamp,0.0,0.05);
+    chassis_cmd.vx = (std::cos(heading)*map_velocity.x()+std::sin(heading)*map_velocity.y())*1000;
+    chassis_cmd.vy = (-std::sin(heading)*map_velocity.x()+std::cos(heading)*map_velocity.y())*1000;
     navigation_puber->publish(chassis_cmd);
 }

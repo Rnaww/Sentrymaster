@@ -2,6 +2,7 @@ import rclpy, math, time, json, os, signal
 from rclpy.signals import SignalHandlerOptions
 import xml.etree.ElementTree as ET
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, DurabilityPolicy
 from rclpy.executors import ExternalShutdownException
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import Twist, PoseStamped
@@ -62,6 +63,8 @@ class SimulatorNode(Node):
         self.distance = 0
         self.collisions = 0
         self.max_actual_speed = self.max_command_speed = 0
+        self.aligning = False
+        self.terrain_alignment_seconds = 0
         self.terrain_spin_seconds = 0
         self.terrain_spin_events = []
         self.in_terrain_spin = False
@@ -79,6 +82,7 @@ class SimulatorNode(Node):
         self.occupancy = Image.open(os.path.join(share, 'map', '701_model', '701_navigation.png')).convert('L')
         self.nav_suber = self.create_subscription(NavigationMcuCmd, '/navigation2mcu', self.nav_callback, 10)
         self.decision_suber = self.create_subscription(DecisionMcuCmd, '/decision2mcu', self.decision_callback, 10)
+        self.state_suber = self.create_subscription(String, '/decision_state', self.state_callback, QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.gazebo_suber = self.create_subscription(Odometry, '/sentry_robot/odom', self.gazebo_callback, 10)
         self.clock_puber = self.create_publisher(Clock, '/clock', 10)
         self.odom_puber = self.create_publisher(Odometry, '/odin1/odometry_highfreq', 10)
@@ -99,6 +103,9 @@ class SimulatorNode(Node):
     def decision_callback(self, msg):
         self.decision = msg
         self.decision_time = time.monotonic()
+
+    def state_callback(self, msg):
+        self.aligning = msg.data.endswith('对正')
 
     def gazebo_callback(self, msg):
         self.gazebo_odom = msg
@@ -264,7 +271,11 @@ class SimulatorNode(Node):
         if self.start_time is not None and not self.reported:
             self.max_actual_speed = max(self.max_actual_speed,speed)
             self.max_command_speed = max(self.max_command_speed,math.hypot(self.nav.vx,self.nav.vy)/1000)
-            terrain_spin = not self.terrain.flat(self.x,self.y) and abs(actual_wz) >= math.radians(30)
+            terrain_rotation = not self.terrain.flat(self.x,self.y) and abs(actual_wz) >= math.radians(30)
+            # 有界的入口对正允许转向；单独记录，不能当成持续小陀螺。
+            alignment_rotation = self.aligning and abs(self.decision.wz) <= 60 and abs(actual_wz) <= math.radians(60)+1e-6
+            if terrain_rotation and alignment_rotation: self.terrain_alignment_seconds += dt
+            terrain_spin = terrain_rotation and not alignment_rotation
             if terrain_spin:
                 self.terrain_spin_seconds += dt
                 if not self.in_terrain_spin:
@@ -287,7 +298,7 @@ class SimulatorNode(Node):
             self.get_logger().info('SCORE '+json.dumps(self.judge.events[-1],ensure_ascii=False))
         if self.elapsed >= 300 and not self.reported:
             self.reported = True
-            result = {'physics':self.physics,'max_speed_mps':4.5,'max_actual_speed_mps':self.max_actual_speed,'max_command_speed_mps':self.max_command_speed,'terrain_spin_seconds':self.terrain_spin_seconds,'terrain_spin_events':self.terrain_spin_events,'score':self.judge.score,'spin_violations':self.judge.spin_violations,'events':self.judge.events,'distance':round(self.distance,2),'collision_samples':self.collisions,'final_pose':[self.x,self.y],'scoring_posture_seconds':self.judge.scoring_time}
+            result = {'physics':self.physics,'max_speed_mps':4.5,'max_actual_speed_mps':self.max_actual_speed,'max_command_speed_mps':self.max_command_speed,'terrain_alignment_seconds':self.terrain_alignment_seconds,'terrain_spin_seconds':self.terrain_spin_seconds,'terrain_spin_events':self.terrain_spin_events,'score':self.judge.score,'spin_violations':self.judge.spin_violations,'events':self.judge.events,'distance':round(self.distance,2),'collision_samples':self.collisions,'final_pose':[self.x,self.y],'scoring_posture_seconds':self.judge.scoring_time}
             data = json.dumps(result,ensure_ascii=False,indent=2)
             self.get_logger().info('RESULT '+data)
             msg = String();msg.data = data;self.score_puber.publish(msg)
