@@ -101,13 +101,13 @@ Trajectory<5>* LocalOptimizer::get_traj(){
     return &traj;
 }
 
-Eigen::Vector3d LocalOptimizer::get_v_directioin(){
+Eigen::Vector3d LocalOptimizer::get_v_directioin(double lookahead){
     Eigen::Vector3d p0 = traj.getPos(0.0);
     Eigen::Vector3d dir;
     for (double t = 0.01; t <= traj.getTotalDuration(); t += 0.01) {
         dir = traj.getPos(t) - p0;
         dir.z() = 0.0;
-        if (dir.norm() > 0.1) break;  // 前瞻 0.2m
+        if (dir.norm() > lookahead) break;
     }
     return dir.normalized() * 1000;
 }

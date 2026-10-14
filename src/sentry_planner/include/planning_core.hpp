@@ -222,11 +222,11 @@ public:
         return true;
     }
 
-    Eigen::Vector3d getDirection(){
+    Eigen::Vector3d getDirection(double lookahead = 0.2){
         if (fallback_route.empty()){
-            auto direction = local_optimizer->get_v_directioin();
+            auto direction = local_optimizer->get_v_directioin(lookahead);
             if (direction.allFinite() && direction.norm() > 1e-6 &&
-                segmentFree(search_route.front(),search_route.front()+direction.normalized()*0.1)) return direction;
+                segmentFree(search_route.front(),search_route.front()+direction.normalized()*lookahead)) return direction;
             useFallback(search_route,"lookahead cuts outside free map");
         }
         Eigen::Vector3d direction = Eigen::Vector3d::Zero();
@@ -234,7 +234,7 @@ public:
             // 前瞻连线也必须可通行，不能跳过折点直接切入障碍格。
             if (!segmentFree(fallback_route.front(), point)) break;
             direction = point-fallback_route.front();
-            if (direction.head<2>().norm() >= 0.1) break;
+            if (direction.head<2>().norm() >= lookahead) break;
         }
         return direction;
     }

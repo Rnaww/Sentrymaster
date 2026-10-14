@@ -27,6 +27,7 @@ private:
     ChassisDataMsg chassis{};
     PcdMsg::SharedPtr cloud;
     Eigen::Vector3d current_odom_pos_2d = Eigen::Vector3d::Zero();
+    Eigen::Vector3d odom_velocity = Eigen::Vector3d::Zero();
     double yaw = 0, last_odom_time = -1, last_command_time = -1;
     double odom_stamp = -1, yaw_rate = 0;
     double odom_timeout, command_timeout;

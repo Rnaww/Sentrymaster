@@ -62,32 +62,6 @@ public:
         return clearance(point.x(),point.y()) >= 0.6-1e-7;
     }
 
-    Eigen::Vector3d recoveryVelocity(const Eigen::Vector3d &position){
-        Eigen::Vector3d target = position;
-        double nearest = 0.3;
-        double initial = clearance(position.x(),position.y());
-        // 只恢复进入安全余量的情况；旋转车体包络加栅格误差仍须可容纳。
-        if (initial < std::hypot(0.3,0.3)+resolution/std::sqrt(2.0)) return Eigen::Vector3d::Zero();
-        int row = static_cast<int>((position.x()-mapBound[0])/resolution);
-        int col = static_cast<int>((position.y()-mapBound[2])/resolution);
-        for (int i = row-3; i <= row+3; i++){
-            for (int j = col-3; j <= col+3; j++){
-                Eigen::Vector3d point(mapBound[0]+(i+0.5)*resolution,mapBound[2]+(j+0.5)*resolution,position.z());
-                double distance = (point-position).head<2>().norm();
-                if (distance >= nearest || !navigationFree(point)) continue;
-                bool safe = true;
-                int n = std::max(1,static_cast<int>(std::ceil(distance/0.01)));
-                for (int k = 0; k <= n; k++){
-                    auto sample = position+(point-position)*static_cast<double>(k)/n;
-                    if (clearance(sample.x(),sample.y()) < initial-1e-7){ safe = false; break; }
-                }
-                if (safe){ nearest = distance; target = point; }
-            }
-        }
-        auto direction = target-position;
-        return direction.norm() > 1e-6 ? Eigen::Vector3d(direction.normalized()*0.15) : Eigen::Vector3d::Zero();
-    }
-
     Eigen::Vector3d checkedVelocity(const Eigen::Vector3d &position, const Eigen::Vector3d &velocity){
         double speed = velocity.head<2>().norm();
         if (speed < 1e-6) return Eigen::Vector3d::Zero();

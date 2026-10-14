@@ -39,13 +39,15 @@ void SentryPlannerNode::OdomCallBack(OdomMsg::SharedPtr msg){
             auto map_world = tf_buffer->lookupTransform("map", msg->header.frame_id, tf2::TimePointZero);
             world_vehicle = tf2::transformToEigen(map_world.transform) * world_vehicle;
         }
-        current_odom_pos_2d = world_vehicle.translation();
-        current_odom_pos_2d.z() = 0.05;
         double new_yaw = std::atan2(world_vehicle.linear()(1,0), world_vehicle.linear()(0,0));
         double stamp = rclcpp::Time(msg->header.stamp).seconds();
         if (odom_stamp >= 0 && stamp > odom_stamp && stamp-odom_stamp < 0.5){
+            odom_velocity = (world_vehicle.translation()-current_odom_pos_2d)/(stamp-odom_stamp);
+            odom_velocity.z() = 0;
             yaw_rate = std::atan2(std::sin(new_yaw-yaw),std::cos(new_yaw-yaw))/(stamp-odom_stamp);
-        }
+        }else odom_velocity.setZero();
+        current_odom_pos_2d = world_vehicle.translation();
+        current_odom_pos_2d.z() = 0.05;
         yaw = new_yaw;
         odom_stamp = stamp;
     }catch(const tf2::TransformException &ex){
@@ -83,30 +85,27 @@ void SentryPlannerNode::log_state(const std::string &reason){
 void SentryPlannerNode::control_cbk(){
     ChassisControlMsg chassis_cmd{};
     Eigen::Vector3d map_velocity = Eigen::Vector3d::Zero();
-    bool recovering = false;
+    Eigen::Vector3d position = current_odom_pos_2d+odom_velocity*std::clamp(now().seconds()-odom_stamp,0.0,odom_timeout);
     if (last_command_time < 0 || now().seconds()-last_command_time > command_timeout || decision.move_v == 0){
         log_state("stopped");
     }else if (last_odom_time < 0 || now().seconds()-last_odom_time > odom_timeout){
         log_state("odometry/TF unavailable");
     }else{
         Eigen::Vector3d goal(decision.aim_x, decision.aim_y, 0.05);
-        double now_dis = (current_odom_pos_2d-goal).head<2>().norm();
-        if (!terrain_speed->navigationFree(current_odom_pos_2d)){
-            Eigen::Vector3d map_v = terrain_speed->recoveryVelocity(current_odom_pos_2d)*std::min(1000.0,decision.move_v/0.15);
-            map_velocity = map_v/1000.0;
-            recovering = true;
-            log_state(map_v.norm() > 0 ? "restore navigation clearance" : "insufficient body clearance");
-        }else if (now_dis <= planning_core->config->reach_thresh){
+        double now_dis = (position-goal).head<2>().norm();
+        if (now_dis <= planning_core->config->reach_thresh){
             log_state("reached");
-        }else if (planning_core->plan(current_odom_pos_2d, goal, decision.is_cross)){
+        }else if (planning_core->plan(position, goal, decision.is_cross)){
             // 沿用旧前瞻方向。MINCO 时标不作为执行时标。
-            Eigen::Vector3d map_v = planning_core->getDirection();
+            double lookahead = std::clamp(odom_velocity.head<2>().norm()*0.2,0.2,0.4);
+            Eigen::Vector3d map_v = planning_core->getDirection(lookahead);
             if (map_v.allFinite() && map_v.head<2>().norm() > 1e-6){
                 auto path = planning_core->getPath(now());
-                double new_spd = terrain_speed->getLimit(current_odom_pos_2d, path, decision.move_v/1000.0)*1000;
+                position = current_odom_pos_2d+odom_velocity*std::clamp(now().seconds()-odom_stamp,0.0,odom_timeout);
+                double new_spd = terrain_speed->getLimit(position, path, decision.move_v/1000.0)*1000;
                 // terrain_speed 已按制动距离限制终点速度，不再重复乘末端减速系数。
                 map_v = map_v.normalized()*new_spd;
-                map_v = terrain_speed->checkedVelocity(current_odom_pos_2d,map_v/1000)*1000;
+                map_v = terrain_speed->checkedVelocity(position,map_v/1000)*1000;
                 map_velocity = map_v/1000.0;
                 log_state(planning_core->fallback_route.empty() ? "following MINCO" : "following A*");
                 path_puber->publish(path);
@@ -115,8 +114,8 @@ void SentryPlannerNode::control_cbk(){
     }
     bool emergency = last_command_time < 0 || now().seconds()-last_command_time > command_timeout ||
                      last_odom_time < 0 || now().seconds()-last_odom_time > odom_timeout;
-    if (!recovering || emergency) map_velocity = terrain_speed->limitVelocity(map_velocity,now().seconds(),emergency);
-    if (terrain_speed->navigationFree(current_odom_pos_2d)) map_velocity = terrain_speed->checkedVelocity(current_odom_pos_2d,map_velocity);
+    map_velocity = terrain_speed->limitVelocity(map_velocity,now().seconds(),emergency);
+    map_velocity = terrain_speed->checkedVelocity(position,map_velocity);
     terrain_speed->acceptVelocity(map_velocity);
     double heading = yaw+yaw_rate*std::clamp(now().seconds()-odom_stamp,0.0,odom_timeout);
     chassis_cmd.vx = (std::cos(heading)*map_velocity.x()+std::sin(heading)*map_velocity.y())*1000;

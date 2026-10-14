@@ -25,7 +25,7 @@ public:
 
     Trajectory<5>* get_traj();
     // 获取路径方向，取距离起点最近的点并且转换为mm/s
-    Eigen::Vector3d get_v_directioin();
+    Eigen::Vector3d get_v_directioin(double lookahead = 0.2);
     // 获取当前点的平面曲率
     double get_curvature();
 };
