@@ -24,6 +24,8 @@ SentryPlannerNode::SentryPlannerNode(std::string name):Node(name){
 }
 
 void SentryPlannerNode::OdomCallBack(OdomMsg::SharedPtr msg){
+    double stamp = rclcpp::Time(msg->header.stamp).seconds();
+    if (odom_stamp >= 0 && stamp <= odom_stamp) return;
     odom = *msg;
     last_odom_time = now().seconds();
     // Odin 的安装坐标通过原 URDF 转到 vehicle，不把 Odin yaw 当作底盘 yaw。
@@ -40,7 +42,6 @@ void SentryPlannerNode::OdomCallBack(OdomMsg::SharedPtr msg){
             world_vehicle = tf2::transformToEigen(map_world.transform) * world_vehicle;
         }
         double new_yaw = std::atan2(world_vehicle.linear()(1,0), world_vehicle.linear()(0,0));
-        double stamp = rclcpp::Time(msg->header.stamp).seconds();
         if (odom_stamp >= 0 && stamp > odom_stamp && stamp-odom_stamp < 0.5){
             odom_velocity = (world_vehicle.translation()-current_odom_pos_2d)/(stamp-odom_stamp);
             odom_velocity.z() = 0;
@@ -98,10 +99,10 @@ void SentryPlannerNode::control_cbk(){
         }else if (planning_core->plan(position, goal, decision.is_cross)){
             // 沿用旧前瞻方向。MINCO 时标不作为执行时标。
             double lookahead = std::clamp(odom_velocity.head<2>().norm()*0.2,0.2,0.4);
-            Eigen::Vector3d map_v = planning_core->getDirection(lookahead);
+            auto path = planning_core->getPath(now());
+            position = current_odom_pos_2d+odom_velocity*std::clamp(now().seconds()-odom_stamp,0.0,odom_timeout);
+            Eigen::Vector3d map_v = planning_core->getDirection(position,path,lookahead);
             if (map_v.allFinite() && map_v.head<2>().norm() > 1e-6){
-                auto path = planning_core->getPath(now());
-                position = current_odom_pos_2d+odom_velocity*std::clamp(now().seconds()-odom_stamp,0.0,odom_timeout);
                 double new_spd = terrain_speed->getLimit(position, path, decision.move_v/1000.0)*1000;
                 // terrain_speed 已按制动距离限制终点速度，不再重复乘末端减速系数。
                 map_v = map_v.normalized()*new_spd;

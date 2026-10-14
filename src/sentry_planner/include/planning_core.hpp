@@ -222,21 +222,41 @@ public:
         return true;
     }
 
-    Eigen::Vector3d getDirection(double lookahead = 0.2){
-        if (fallback_route.empty()){
-            auto direction = local_optimizer->get_v_directioin(lookahead);
-            if (direction.allFinite() && direction.norm() > 1e-6 &&
-                segmentFree(search_route.front(),search_route.front()+direction.normalized()*lookahead)) return direction;
-            useFallback(search_route,"lookahead cuts outside free map");
+    Eigen::Vector3d getDirection(const Eigen::Vector3d &position, const nav_msgs::msg::Path &path, double lookahead){
+        if (path.poses.size() < 2) return Eigen::Vector3d::Zero();
+        auto point_at = [&](size_t i){
+            auto &p = path.poses[i].pose.position;
+            return Eigen::Vector3d(p.x,p.y,position.z());
+        };
+        size_t nearest = 1;
+        double distance = INFINITY;
+        Eigen::Vector3d projection = position;
+        for (size_t i = 1; i < path.poses.size(); i++){
+            Eigen::Vector3d a = point_at(i-1), delta = point_at(i)-a;
+            if (delta.squaredNorm() < 1e-12) continue;
+            double ratio = std::clamp((position-a).dot(delta)/delta.squaredNorm(),0.0,1.0);
+            Eigen::Vector3d point = a+delta*ratio;
+            if ((point-position).squaredNorm() < distance){
+                distance = (point-position).squaredNorm();
+                nearest = i;
+                projection = point;
+            }
         }
-        Eigen::Vector3d direction = Eigen::Vector3d::Zero();
-        for (auto &point : fallback_route){
-            // 前瞻连线也必须可通行，不能跳过折点直接切入障碍格。
-            if (!segmentFree(fallback_route.front(), point)) break;
-            direction = point-fallback_route.front();
-            if (direction.head<2>().norm() >= lookahead) break;
+        // 从当前车体在曲线上的投影前瞻，不能继续追优化开始时的旧起点。
+        for (int attempt = 0; attempt < 6; attempt++, lookahead *= 0.5){
+            Eigen::Vector3d point = projection;
+            double remaining = lookahead;
+            for (size_t i = nearest; i < path.poses.size(); i++){
+                Eigen::Vector3d delta = point_at(i)-point;
+                double length = delta.norm();
+                if (length < 1e-9) continue;
+                if (length >= remaining){ point += delta*remaining/length; break; }
+                point = point_at(i);
+                remaining -= length;
+            }
+            if ((point-position).norm() > 1e-6 && segmentFree(position,point)) return point-position;
         }
-        return direction;
+        return Eigen::Vector3d::Zero();
     }
 
     nav_msgs::msg::Path getPath(const rclcpp::Time &stamp){
