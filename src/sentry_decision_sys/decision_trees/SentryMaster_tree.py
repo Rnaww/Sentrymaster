@@ -39,6 +39,18 @@ class Stop(py_trees.behaviour.Behaviour):
         self.node.posture = 3
         return py_trees.common.Status.RUNNING
 
+class FinishSpin(Stop):
+    def __init__(self, node, missions):
+        super().__init__(node)
+        self.name = '任务结束后等待比赛结束'
+        self.missions = missions
+
+    def update(self):
+        status = super().update()
+        if all(task.status == py_trees.common.Status.SUCCESS for task in self.missions):
+            self.node.wz = 90
+        return status
+
 class Navigate(py_trees.behaviour.Behaviour):
     def __init__(self, node, name, point, speed=4500, spin=90, is_cross=False, deadline=300, reach_thresh=0.25, heading=None, stop_at_goal=True):
         super().__init__(name)
@@ -253,9 +265,12 @@ class SupplyTimeAvailable(py_trees.behaviour.Behaviour):
 
 def create_SentryMaster_tree(node):
     safety = py_trees.composites.Sequence('安全停车', memory=False, children=[Unsafe(node), Stop(node)])
+    missions = []
     def mission(name, children):
         # 整项任务失败后跳过，不能继续执行它的停留计分节点。
-        return py_trees.decorators.FailureIsSuccess(name=name, child=py_trees.composites.Sequence(name+'流程', memory=True, children=children))
+        task = py_trees.composites.Sequence(name+'流程', memory=True, children=children)
+        missions.append(task)
+        return py_trees.decorators.FailureIsSuccess(name=name, child=task)
     fortress_leg = CrossTerrainSequence(node, '堡垒东侧上坡', F_ENTRY, F, reach_thresh=0.04, stop_at_goal=True)
     final_supply = py_trees.composites.Selector('最后两次补给', memory=True, children=[
         py_trees.composites.Sequence('按时完成第4次补给', memory=True, children=[
@@ -286,6 +301,6 @@ def create_SentryMaster_tree(node):
         mission('第3次补给', [CrossTerrainSequence(node, '梯形下坡', T_RAMP_TOP, T_ENTRY, deadline=180, heading=math.atan2(1.7,1.4)), Navigate(node, '返回补给3', S, deadline=180), Hold(node, '补给3', S, 5.5, earliest=120, deadline=180, supply=True)]),
         mission('堡垒任务', [fortress_leg, Hold(node, '堡垒旋转停留', F, 20.5, earliest=180, spin=90)]),
         mission('最后补给', [final_supply, Navigate(node, '返回补给5', S), Hold(node, '补给5', S, 5.5, earliest=240, supply=True)]),
-        Stop(node),
+        FinishSpin(node, missions),
     ])
     return py_trees.composites.Selector('SentryMaster', memory=False, children=[safety, tasks, Stop(node)])

@@ -149,7 +149,9 @@ class DecisionNode(Node):
             self.terrain_clear_since = None
             self.terrain_no_spin = True
         else:
-            if self.terrain_clear_since is None: self.terrain_clear_since = self.time_now()
+            if self.terrain_clear_since is None:
+                pose = self.inputs.get('odom')
+                self.terrain_clear_since = pose.header.stamp.sec+pose.header.stamp.nanosec/1e9 if pose else self.time_now()
             self.terrain_no_spin = self.time_now()-self.terrain_clear_since < self.spin_resume_delay
 
     def tick_callback(self):
