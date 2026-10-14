@@ -123,7 +123,7 @@ void SentryPlannerNode::control_cbk(){
         Eigen::Vector3d map_v = terrain_speed->recoveryVelocity(position)*std::min(1.0,decision.move_v/150.0);
         // 净空恢复是安全动作，不延续此前朝向障碍的速度。
         terrain_speed->acceptVelocity(map_v);
-        double heading = yaw+yaw_rate*std::clamp(now().seconds()-odom_stamp,0.0,0.05);
+        double heading = yaw+yaw_rate*std::clamp(now().seconds()-odom_stamp,0.0,odom_timeout);
         ChassisControlMsg output{};
         output.vx = (std::cos(heading)*map_v.x()+std::sin(heading)*map_v.y())*1000;
         output.vy = (-std::sin(heading)*map_v.x()+std::cos(heading)*map_v.y())*1000;
@@ -165,7 +165,7 @@ void SentryPlannerNode::control_cbk(){
     map_velocity = terrain_speed->limitVelocity(map_velocity,now().seconds(),emergency);
     map_velocity = terrain_speed->checkedVelocity(position,map_velocity);
     terrain_speed->acceptVelocity(map_velocity);
-    double heading = yaw+yaw_rate*std::clamp(now().seconds()-odom_stamp,0.0,0.05);
+    double heading = yaw+yaw_rate*std::clamp(now().seconds()-odom_stamp,0.0,odom_timeout);
     output.vx = (std::cos(heading)*map_velocity.x()+std::sin(heading)*map_velocity.y())*1000;
     output.vy = (-std::sin(heading)*map_velocity.x()+std::cos(heading)*map_velocity.y())*1000;
     navigation_puber->publish(output);

@@ -4,7 +4,7 @@ from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 from tf2_ros import Buffer, TransformListener
 from rm_msgs.msg import RefereeData, ChassisData, DecisionMcuCmd, DecisionNavCmd
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, Path
 from std_msgs.msg import String
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from ament_index_python.packages import get_package_share_directory
@@ -28,6 +28,7 @@ class DecisionNode(Node):
         self.aim_chassis_yaw = None
         self.aligning = False
         self.passage_exit = self.passage_yaw = None
+        self.path = None
         self.yaw = 0
         self.inputs = {}
         self.recv_times = {}
@@ -46,6 +47,7 @@ class DecisionNode(Node):
         self.last_task = ""
         self.referee_suber = self.create_subscription(RefereeData, '/referee_data', self.referee_callback, 10)
         self.odom_suber = self.create_subscription(Odometry, '/navigation_odom', self.odom_callback, 10)
+        self.path_suber = self.create_subscription(Path, '/planned_path', self.path_callback, 10)
         self.chassis_suber = self.create_subscription(ChassisData, '/chassis_data', self.chassis_callback, 10)
         self.nav_publisher = self.create_publisher(DecisionNavCmd, '/decision2nav', 10)
         self.mcu_publisher = self.create_publisher(DecisionMcuCmd, '/decision2mcu', 10)
@@ -97,6 +99,42 @@ class DecisionNode(Node):
 
     def chassis_callback(self, msg : ChassisData) -> None:
         self.inputs['chassis'] = msg
+
+    def path_callback(self, msg : Path) -> None:
+        if msg.header.frame_id == 'map':
+            self.path = msg
+
+    def path_heading(self, goal, default):
+        # 仅跨地形使用路径切向对正；曲线仍由导航规划，不能强制改成直线。
+        if self.path is None or len(self.path.poses) < 2:
+            return default
+        poses = self.path.poses
+        last = poses[-1].pose.position
+        if math.dist((last.x,last.y),goal) > 0.1: return default
+        nearest = None
+        for i in range(1,len(poses)):
+            a,b = poses[i-1].pose.position,poses[i].pose.position
+            dx,dy = b.x-a.x,b.y-a.y
+            length2 = dx*dx+dy*dy
+            if length2 < 1e-12: continue
+            t = max(0,min(1,((self.x-a.x)*dx+(self.y-a.y)*dy)/length2))
+            x,y = a.x+t*dx,a.y+t*dy
+            distance = (self.x-x)**2+(self.y-y)**2
+            if nearest is None or distance < nearest[0]: nearest = (distance,i,x,y)
+        if nearest is None: return default
+        _,i,x,y = nearest
+        # 0.35m 弧长前瞻抑制栅格小折角，保留坡面上的实际行驶方向。
+        px,py,remaining = x,y,0.35
+        for pose in poses[i:]:
+            p = pose.pose.position
+            length = math.hypot(p.x-px,p.y-py)
+            if length >= remaining:
+                px,py = px+(p.x-px)*remaining/length,py+(p.y-py)*remaining/length
+                break
+            remaining -= length
+            px,py = p.x,p.y
+        if math.hypot(px-x,py-y) < 1e-6: return default
+        return math.atan2(py-y,px-x)
 
     def spin_command(self, requested):
         if self.aim_chassis_yaw is not None:

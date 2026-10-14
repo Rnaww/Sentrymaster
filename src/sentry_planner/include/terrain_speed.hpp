@@ -147,7 +147,8 @@ public:
     }
 
     Eigen::Vector3d limitVelocity(const Eigen::Vector3d &velocity, double time, bool emergency=false){
-        double dt = last_speed_time < 0 ? 0.01 : std::clamp(time-last_speed_time,0.0,0.05);
+        // 使用实际控制间隔，不能把较慢回调截成 0.05s 后仍按完整加速度估算制动。
+        double dt = last_speed_time < 0 ? 0.01 : std::clamp(time-last_speed_time,0.0,0.5);
         last_speed_time = time;
         if (emergency){ previous_velocity.setZero(); return previous_velocity; }
         Eigen::Vector3d change = velocity-previous_velocity;
