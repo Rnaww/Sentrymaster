@@ -10,8 +10,10 @@ T = (3.35, 4.00)
 F = (8.95, 2.55)
 # 控制用的平地对正点和通道出口，不是新增计分任务。
 C_ENTRY = (14.65, 9.0)
+C_RAMP_TOP = (13.7, 9.0)
 F_ENTRY = (10.3, 2.5)
 T_ENTRY = (3.73, 5.74)
+T_RAMP_TOP = (3.1, 4.975)
 ROUGH_EXIT = (15.45, 7.3)
 # diagram 的第五次补给离区参考点，不是裁判任务点。
 R = (10.05, 3.85)
@@ -49,7 +51,6 @@ class Navigate(py_trees.behaviour.Behaviour):
         self.reach_thresh = reach_thresh
         self.heading = heading
         self.stop_at_goal = stop_at_goal
-        self.terrain_entered = False
         self.complete = self.failed = False
         self.start_time = None
         self.travel_time = 0
@@ -85,8 +86,7 @@ class Navigate(py_trees.behaviour.Behaviour):
         node.posture = 3
         node.wz = self.spin
         if heading is not None:
-            self.terrain_entered = self.terrain_entered or node.terrain_no_spin
-            if self.terrain_entered and not node.terrain_no_spin:
+            if not node.terrain_no_spin:
                 heading = None
             else:
                 heading = node.path_heading(point,heading)
@@ -281,9 +281,9 @@ def create_SentryMaster_tree(node):
     tasks = py_trees.composites.Sequence('新生赛任务', memory=True, children=[
         mission('第1次补给', [Navigate(node, '启动到补给1', S, deadline=60), Hold(node, '补给1', S, 5.5, deadline=60, supply=True)]),
         mission('中央任务', [CrossTerrainSequence(node, '起伏正向', S, ROUGH_EXIT, deadline=180), CrossTerrainSequence(node, '中央上坡', C_ENTRY, C, deadline=180, stop_at_goal=True, heading=math.pi), Hold(node, '中央高地停留', C, 20.5, deadline=180)]),
-        mission('第2次补给', [CrossTerrainSequence(node, '中央下坡', C, C_ENTRY, deadline=120, heading=0), CrossTerrainSequence(node, '起伏返回', ROUGH_EXIT, S, deadline=120), Hold(node, '补给2', S, 5.5, earliest=60, deadline=120, supply=True)]),
+        mission('第2次补给', [CrossTerrainSequence(node, '中央下坡', C_RAMP_TOP, C_ENTRY, deadline=120, heading=0), CrossTerrainSequence(node, '起伏返回', ROUGH_EXIT, S, deadline=120), Hold(node, '补给2', S, 5.5, earliest=60, deadline=120, supply=True)]),
         mission('梯形任务', [CrossTerrainSequence(node, '梯形上坡', T_ENTRY, T, deadline=180, stop_at_goal=True, heading=math.atan2(-1.7,-1.4)), Hold(node, '梯形高地停留', T, 20.5, deadline=180)]),
-        mission('第3次补给', [CrossTerrainSequence(node, '梯形下坡', T, T_ENTRY, deadline=180, heading=math.atan2(1.7,1.4)), Navigate(node, '返回补给3', S, deadline=180), Hold(node, '补给3', S, 5.5, earliest=120, deadline=180, supply=True)]),
+        mission('第3次补给', [CrossTerrainSequence(node, '梯形下坡', T_RAMP_TOP, T_ENTRY, deadline=180, heading=math.atan2(1.7,1.4)), Navigate(node, '返回补给3', S, deadline=180), Hold(node, '补给3', S, 5.5, earliest=120, deadline=180, supply=True)]),
         mission('堡垒任务', [fortress_leg, Hold(node, '堡垒旋转停留', F, 20.5, earliest=180, spin=90)]),
         mission('最后补给', [final_supply, Navigate(node, '返回补给5', S), Hold(node, '补给5', S, 5.5, earliest=240, supply=True)]),
         Stop(node),
