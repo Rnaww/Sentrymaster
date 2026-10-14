@@ -97,12 +97,40 @@ public:
         double speed = velocity.head<2>().norm();
         if (speed < 1e-6) return Eigen::Vector3d::Zero();
         double distance = std::max(0.1,speed*0.1);
-        int n = std::max(1,static_cast<int>(std::ceil(distance/0.01)));
-        double safe_distance = 0;
-        for (int i = 1; i <= n; i++){
-            double step = distance*i/n;
-            if (!navigationFree(position+velocity/speed*step)) break;
-            safe_distance = step;
+        auto direction = velocity/speed;
+        auto end = position+direction*distance;
+        int row = static_cast<int>((position.x()-mapBound[0])/resolution);
+        int col = static_cast<int>((position.y()-mapBound[2])/resolution);
+        int end_row = static_cast<int>((end.x()-mapBound[0])/resolution);
+        int end_col = static_cast<int>((end.y()-mapBound[2])/resolution);
+        auto free_cell = [&](int r, int c){
+            return r >= 0 && c >= 0 && r < clearance_map.rows && c < clearance_map.cols &&
+                   clearance_map.at<float>(r,c) >= 0.6-1e-7;
+        };
+        if (!free_cell(row,col)) return Eigen::Vector3d::Zero();
+        int sx = direction.x() > 0 ? 1 : -1, sy = direction.y() > 0 ? 1 : -1;
+        double tx = INFINITY, ty = INFINITY, step_x = INFINITY, step_y = INFINITY;
+        if (row != end_row){
+            tx = (mapBound[0]+(row+(sx > 0))*resolution-position.x())/direction.x();
+            step_x = resolution/std::abs(direction.x());
+        }
+        if (col != end_col){
+            ty = (mapBound[2]+(col+(sy > 0))*resolution-position.y())/direction.y();
+            step_y = resolution/std::abs(direction.y());
+        }
+        // 逐格检查，固定间隔采样会漏掉栅格转角处很短的不可通行段。
+        double safe_distance = distance;
+        while (row != end_row || col != end_col){
+            double crossing = std::min(tx,ty);
+            if (std::abs(tx-ty) < 1e-12){
+                if (!free_cell(row+sx,col) || !free_cell(row,col+sy)){
+                    safe_distance = crossing;
+                    break;
+                }
+                row += sx; col += sy; tx += step_x; ty += step_y;
+            }else if (tx < ty){ row += sx; tx += step_x; }
+            else{ col += sy; ty += step_y; }
+            if (!free_cell(row,col)){ safe_distance = crossing; break; }
         }
         double limit = safe_distance >= distance-1e-6 ? speed : std::max(0.0,(safe_distance-0.02)/0.1);
         return velocity*std::min(1.0,limit/speed);

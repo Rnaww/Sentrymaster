@@ -76,6 +76,15 @@ private:
         output.pose.pose.position.z = vehicle_tf.transform.translation.z;
         output.pose.pose.orientation = vehicle_tf.transform.rotation;
         double yaw = std::atan2(odom_vehicle.linear()(1,0), odom_vehicle.linear()(0,0));
+        // Nav2 使用水平底盘系；vehicle 的完整姿态仍保留在里程计中。
+        auto planar_tf = vehicle_tf;
+        planar_tf.header = msg->header;
+        planar_tf.child_frame_id = "base_footprint";
+        planar_tf.transform.rotation.x = 0;
+        planar_tf.transform.rotation.y = 0;
+        planar_tf.transform.rotation.z = std::sin(yaw/2);
+        planar_tf.transform.rotation.w = std::cos(yaw/2);
+        tf_puber->sendTransform(planar_tf);
         double dt = stamp-last_stamp;
         if (initialized && dt > 0 && dt < 0.5){
             Eigen::Vector3d v = odom_vehicle.linear().transpose() * ((odom_vehicle.translation()-last_position)/dt);
