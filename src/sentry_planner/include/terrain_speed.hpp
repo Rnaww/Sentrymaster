@@ -62,21 +62,20 @@ public:
         return clearance(point.x(),point.y()) >= 0.6-1e-7;
     }
 
-    Eigen::Vector3d checkedVelocity(const Eigen::Vector3d &position, const Eigen::Vector3d &velocity){
-        double speed = velocity.head<2>().norm();
-        if (speed < 1e-6) return Eigen::Vector3d::Zero();
-        double distance = std::max(0.1,speed*0.1+speed*speed/(2*max_acc));
-        auto direction = velocity/speed;
+    double clearDistance(const Eigen::Vector3d &position, const Eigen::Vector3d &direction, double distance, bool connecting=false){
         auto end = position+direction*distance;
         int row = static_cast<int>((position.x()-mapBound[0])/resolution);
         int col = static_cast<int>((position.y()-mapBound[2])/resolution);
         int end_row = static_cast<int>((end.x()-mapBound[0])/resolution);
         int end_col = static_cast<int>((end.y()-mapBound[2])/resolution);
+        double minimum = connecting ? std::min(0.6,clearance(position.x(),position.y())) : 0.6;
+        // 只允许车体包络仍安全的起点接回规划区，沿连接段净空不能减小。
+        if (minimum < std::hypot(0.3,0.3)+resolution/std::sqrt(2.0)) return 0;
         auto free_cell = [&](int r, int c){
             return r >= 0 && c >= 0 && r < clearance_map.rows && c < clearance_map.cols &&
-                   clearance_map.at<float>(r,c) >= 0.6-1e-7;
+                   clearance_map.at<float>(r,c) >= minimum-1e-7;
         };
-        if (!free_cell(row,col)) return Eigen::Vector3d::Zero();
+        if (!free_cell(row,col)) return 0;
         int sx = direction.x() > 0 ? 1 : -1, sy = direction.y() > 0 ? 1 : -1;
         double tx = INFINITY, ty = INFINITY, step_x = INFINITY, step_y = INFINITY;
         if (row != end_row){
@@ -100,7 +99,22 @@ public:
             }else if (tx < ty){ row += sx; tx += step_x; }
             else{ col += sy; ty += step_y; }
             if (!free_cell(row,col)){ safe_distance = crossing; break; }
+            if (connecting) minimum = std::max(minimum,std::min(0.6,static_cast<double>(clearance_map.at<float>(row,col))));
         }
+        return safe_distance;
+    }
+
+    bool connectionFree(const Eigen::Vector3d &start, const Eigen::Vector3d &end){
+        Eigen::Vector3d delta = end-start;
+        double distance = delta.head<2>().norm();
+        return distance > 1e-6 && clearDistance(start,delta/distance,distance,true) >= distance-1e-7;
+    }
+
+    Eigen::Vector3d checkedVelocity(const Eigen::Vector3d &position, const Eigen::Vector3d &velocity, bool connecting=false){
+        double speed = velocity.head<2>().norm();
+        if (speed < 1e-6) return Eigen::Vector3d::Zero();
+        double distance = std::max(0.1,speed*0.1+speed*speed/(2*max_acc));
+        double safe_distance = clearDistance(position,velocity/speed,distance,connecting);
         double limit = safe_distance >= distance-1e-6 ? speed : std::max(0.0,std::sqrt(max_acc*max_acc*0.01+2*max_acc*std::max(0.0,safe_distance-0.02))-max_acc*0.1);
         return velocity*std::min(1.0,limit/speed);
     }

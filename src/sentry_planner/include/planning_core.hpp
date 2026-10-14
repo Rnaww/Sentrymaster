@@ -3,6 +3,7 @@
 #include "global_planner/global_planner.hpp"
 #include "local_optimization/sfc_generator.hpp"
 #include "local_optimization/local_optimizer.hpp"
+#include "terrain_speed.hpp"
 #include <nav_msgs/msg/path.hpp>
 
 // 旧框架的搜索、安全走廊和轨迹优化。
@@ -12,6 +13,8 @@ public:
     rclcpp::Node *node;
     std::vector<Eigen::Vector3d> fallback_route;
     std::vector<Eigen::Vector3d> search_route;
+    bool connecting = false;
+    Eigen::Vector3d connection_start, connection_target;
     std::shared_ptr<Config> config;
     std::shared_ptr<GlobalPathPlanner> global_path_planner;
     std::shared_ptr<SFCgenerator> sfc_generator;
@@ -75,15 +78,36 @@ public:
         return distance;
     }
 
-    bool plan(Eigen::Vector3d start, Eigen::Vector3d goal, bool is_cross){
+    bool plan(Eigen::Vector3d start, Eigen::Vector3d goal, bool is_cross, TerrainSpeed *terrain_speed){
         local_optimizer->clear_traj();
         fallback_route.clear();
         search_route.clear();
+        connecting = false;
         start.z() = 0.05;
         goal.z() = 0.05;
         if (is_cross) global_path_planner->setObsCross();
         else global_path_planner->resetObs();
-        if (!isFree(start) || !isFree(goal)){ last_error = "occupied start/goal"; return false; }
+        if (!isFree(goal)){ last_error = "occupied goal"; return false; }
+        if (!isFree(start)){
+            Eigen::Vector3d target = start;
+            double best = INFINITY;
+            auto index = global_path_planner->coord2gridIndex(start);
+            for (int x = index.x()-3; x <= index.x()+3; x++){
+                for (int y = index.y()-3; y <= index.y()+3; y++){
+                    auto point = global_path_planner->gridIndex2coord(Eigen::Vector3i(x,y,0));
+                    double distance = (point-start).head<2>().norm();
+                    if (distance > 0.3 || !isFree(point) || !terrain_speed->connectionFree(start,point)) continue;
+                    double cost = distance+0.05*(point-goal).head<2>().norm();
+                    if (cost < best){ best = cost; target = point; }
+                }
+            }
+            if (!std::isfinite(best)){ last_error = "no safe connection from occupied start"; return false; }
+            if (!plan(target,goal,is_cross,terrain_speed)) return false;
+            connection_start = start;
+            connection_target = target;
+            connecting = true;
+            return true;
+        }
         std::vector<Eigen::Vector3d> route;
         if (!global_path_planner->GetPath(route, start, goal)){ last_error = "A* failed"; return false; }
         if ((route.back()-goal).head<2>().norm() > 0.2){ last_error = "partial A* path"; return false; }
@@ -223,6 +247,7 @@ public:
     }
 
     Eigen::Vector3d getDirection(double lookahead = 0.2){
+        if (connecting) return connection_target-connection_start;
         if (fallback_route.empty()){
             auto direction = local_optimizer->get_v_directioin(lookahead);
             if (direction.allFinite() && direction.norm() > 1e-6 &&
@@ -243,6 +268,14 @@ public:
         nav_msgs::msg::Path path;
         path.header.frame_id = "map";
         path.header.stamp = stamp;
+        if (connecting){
+            geometry_msgs::msg::PoseStamped pose;
+            pose.header = path.header;
+            pose.pose.position.x = connection_start.x();
+            pose.pose.position.y = connection_start.y();
+            pose.pose.orientation.w = 1;
+            path.poses.push_back(pose);
+        }
         if (!fallback_route.empty()){
             for (size_t i = 1; i < fallback_route.size(); i++){
                 auto a = fallback_route[i-1], b = fallback_route[i];
