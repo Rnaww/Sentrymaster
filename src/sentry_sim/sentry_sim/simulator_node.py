@@ -190,7 +190,6 @@ class SimulatorNode(Node):
         odom.child_frame_id = 'odin1_base_link'
         odom.header.stamp.sec = int(self.clock_time)
         odom.header.stamp.nanosec = int((self.clock_time%1)*1e9)
-        if self.physics == 'gazebo': odom.header.stamp = self.gazebo_odom.header.stamp
         vehicle_q = (0.0,0.0,math.sin(self.yaw/2),math.cos(self.yaw/2))
         # 与旧模型车轮中心和半径对应：0.2242 + 0.0758 m。
         vehicle_z = self.ground(self.x,self.y)+0.3
