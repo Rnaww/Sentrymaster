@@ -1,7 +1,7 @@
 import os, yaml
 import xml.etree.ElementTree as ET
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, SetEnvironmentVariable
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, GroupAction, IncludeLaunchDescription, SetEnvironmentVariable
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution, PythonExpression
@@ -23,6 +23,8 @@ def generate_launch_description():
         launch_arguments={
             'world': os.path.join(sim_share, 'worlds', '701_navigation.world'),
             'params_file': os.path.join(sim_share, 'config', 'gazebo.yaml'),
+            'physics': 'ode',
+            'record': 'false',
         }.items(),
     )
     # 沿用旧工作空间直接启动 gzclient 的写法。
@@ -119,7 +121,7 @@ def generate_launch_description():
         DeclareLaunchArgument('rviz', default_value='false'),
         SetEnvironmentVariable('GAZEBO_MODEL_PATH', os.path.join(sim_share, 'models') + ':' + os.environ.get('GAZEBO_MODEL_PATH', '')),
         SetEnvironmentVariable('GAZEBO_MODEL_DATABASE_URI', ''),
-        gazebo_server,
+        GroupAction(actions=[gazebo_server]),
         gazebo_client,
         spawn_robot,
         robot_state_publisher,
