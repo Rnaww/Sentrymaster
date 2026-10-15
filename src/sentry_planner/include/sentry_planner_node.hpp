@@ -10,10 +10,11 @@ class TerrainSpeed;
 class SentryPlannerNode : public rclcpp::Node{
 public:
     SentryPlannerNode(std::string name);
+
 private:
     using Navigate = nav2_msgs::action::NavigateToPose;
     using GoalHandle = rclcpp_action::ClientGoalHandle<Navigate>;
-    enum NavigationState{IDLE, RUNNING, SUCCEEDED, FAILED, CANCELED};
+    enum NavigationState{ IDLE, RUNNING, SUCCEEDED, FAILED, CANCELED };
     std::shared_ptr<TerrainSpeed> terrain_speed;
     std::shared_ptr<tf2_ros::Buffer> tf_buffer;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener;
