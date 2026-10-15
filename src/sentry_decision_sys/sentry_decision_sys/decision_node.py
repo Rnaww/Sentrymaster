@@ -19,6 +19,9 @@ class DecisionNode(Node):
         super().__init__("sentry_decision_node")
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.is_sim = bool(self.declare_parameter("sim_mode", False).value)
+        # 沿用旧 SLOW_ROTATE：仿真 50 度/s，实车 200 度/s。
+        self.spin_wz = 50.0 if self.is_sim else 200.0
         self.disable_spin = self.declare_parameter('disable_spin', False).value
         self.spin_resume_delay = float(self.declare_parameter('spin_resume_delay', 0.5).value)
         self.terrain = Terrain(
