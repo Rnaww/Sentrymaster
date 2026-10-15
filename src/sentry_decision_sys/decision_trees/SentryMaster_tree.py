@@ -6,14 +6,13 @@ S = (15.45, 1.95)
 U0 = (15.45, 2.55)
 U1 = (15.45, 6.35)
 C = (8.85, 10.05)
-T = (3.35, 4.00)
+T = (2.5, 3.0)
 F = (8.95, 2.55)
 # 控制用的平地对正点和通道出口，不是新增计分任务。
-C_ENTRY = (14.65, 9.0)
-C_RAMP_TOP = (13.7, 9.0)
+C_ENTRY = (15.15, 9.0)
+C_RAMP_TOP = (13.3, 9.0)
 F_ENTRY = (10.3, 2.5)
-T_ENTRY = (3.73, 5.74)
-T_RAMP_TOP = (3.1, 4.975)
+T_ENTRY = (4.8, 5.8)
 ROUGH_EXIT = (15.45, 7.3)
 # diagram 的第五次补给离区参考点，不是裁判任务点。
 R = (10.05, 3.85)
@@ -52,7 +51,7 @@ class FinishSpin(Stop):
     def update(self) -> py_trees.common.Status:
         status = super().update()
         if all(task.status == py_trees.common.Status.SUCCESS for task in self.missions):
-            self.node.wz = 90
+            self.node.wz = self.node.spin_wz
         return status
 
 
@@ -63,23 +62,26 @@ class Navigate(py_trees.behaviour.Behaviour):
         name,
         point,
         speed=4500,
-        spin=90,
+        spin=None,
         is_cross=False,
         deadline=300,
         reach_thresh=0.25,
         heading=None,
-        stop_at_goal=True
+        stop_at_goal=True,
+        keep_heading=False
     ) -> None:
         super().__init__(name)
         self.node = node
         self.point = point
         self.speed = speed
-        self.spin = spin
+        self.spin = node.spin_wz if spin is None else spin
         self.is_cross = is_cross
         self.deadline = deadline
         self.reach_thresh = reach_thresh
         self.heading = heading
         self.stop_at_goal = stop_at_goal
+        self.keep_heading = keep_heading
+        self.terrain_entered = False
         self.complete = self.failed = False
         self.start_time = None
         self.travel_time = 0
@@ -119,7 +121,9 @@ class Navigate(py_trees.behaviour.Behaviour):
         node.posture = 3
         node.wz = self.spin
         if heading is not None:
-            if not node.terrain_no_spin:
+            if node.terrain_no_spin:
+                self.terrain_entered = True
+            if not node.terrain_no_spin and (not self.keep_heading or self.terrain_entered):
                 heading = None
             else:
                 heading = node.path_heading(point, heading)
@@ -157,10 +161,11 @@ class AlignChassis(py_trees.behaviour.Behaviour):
         super().__init__(name)
         self.node, self.point, self.heading, self.deadline = node, point, heading, deadline
         self.stable_since = self.start_time = None
+        self.stopped_since = None
         self.travel_time = 0
 
     def initialise(self) -> None:
-        self.stable_since = None
+        self.stable_since = self.stopped_since = None
 
     def update(self) -> py_trees.common.Status:
         node = self.node
@@ -169,13 +174,24 @@ class AlignChassis(py_trees.behaviour.Behaviour):
             self.start_time = now
         self.travel_time = now - self.start_time
         node.goal = self.point
-        node.move_v = node.wz = 0
+        node.move_v = 0
+        node.wz = node.spin_wz
         node.posture = 3
-        node.aim_chassis_yaw = self.heading
-        node.aligning = True
+        node.aim_chassis_yaw = None
+        node.aligning = False
         if node.elapsed >= self.deadline or self.travel_time >= 10:
             node.get_logger().warning(f'{self.name}: alignment timeout')
             return py_trees.common.Status.FAILURE
+        # 先确认平移停稳，避免残余速度与入口对正混在一起。
+        if node.linear_speed >= 0.02:
+            self.stopped_since = None
+        elif self.stopped_since is None:
+            self.stopped_since = now
+        if self.stopped_since is None or now - self.stopped_since < 0.2:
+            return py_trees.common.Status.RUNNING
+        node.wz = 0
+        node.aim_chassis_yaw = self.heading
+        node.aligning = True
         error = math.atan2(math.sin(self.heading - node.yaw), math.cos(self.heading - node.yaw))
         # 沿用旧 CheckYawAction：0.1rad 内连续保持 0.5s。
         if abs(error) < 0.1 and node.linear_speed < 0.05:
@@ -210,7 +226,8 @@ class CrossTerrainSequence(py_trees.composites.Sequence):
         deadline=300,
         reach_thresh=0.15,
         stop_at_goal=False,
-        heading=None
+        heading=None,
+        keep_heading=False
     ) -> None:
         if heading is None:
             heading = math.atan2(end_point[1] - start_point[1], end_point[0] - start_point[0])
@@ -225,12 +242,13 @@ class CrossTerrainSequence(py_trees.composites.Sequence):
                     node,
                     name + '跨越',
                     end_point,
-                    spin=90,
+                    spin=node.spin_wz,
                     is_cross=True,
                     deadline=deadline,
                     reach_thresh=reach_thresh,
                     heading=heading,
-                    stop_at_goal=stop_at_goal
+                    stop_at_goal=stop_at_goal,
+                    keep_heading=keep_heading
                 ),
                 PassageState(node, name + '结束'),
             ]
@@ -269,7 +287,7 @@ class Hold(py_trees.behaviour.Behaviour):
         node.is_cross = False
         node.move_v = 0
         # 制动仍遵循地形禁转；停稳后执行停留要求。
-        node.wz = self.spin if node.linear_speed < 0.05 else 90
+        node.wz = self.spin if node.linear_speed < 0.05 else node.spin_wz
         node.posture = 1
         if node.elapsed >= self.deadline:
             self.failed = True
@@ -382,7 +400,7 @@ def create_SentryMaster_tree(node) -> py_trees.composites.Selector:
                                 memory=True,
                                 children=[
                                     AtFortress(node),
-                                    Hold(node, '等待第5分钟补给', F, 0, earliest=240.5, spin=90),
+                                    Hold(node, '等待第5分钟补给', F, 0, earliest=240.5, spin=node.spin_wz),
                                     CrossTerrainSequence(node, '堡垒东侧下坡5', F, F_ENTRY),
                                 ],
                             ),
@@ -391,7 +409,7 @@ def create_SentryMaster_tree(node) -> py_trees.composites.Selector:
                                 memory=True,
                                 children=[
                                     Navigate(node, '补给5离区', R),
-                                    Hold(node, '离区等待第5分钟', R, 0, earliest=240.5, spin=90),
+                                    Hold(node, '离区等待第5分钟', R, 0, earliest=240.5, spin=node.spin_wz),
                                 ],
                             ),
                         ],
@@ -427,21 +445,21 @@ def create_SentryMaster_tree(node) -> py_trees.composites.Selector:
             mission(
                 '梯形任务', [
                     CrossTerrainSequence(
-                        node, '梯形上坡', T_ENTRY, T, deadline=180, stop_at_goal=True, heading=math.atan2(-1.7, -1.4)
+                        node, '梯形上坡', T_ENTRY, T, deadline=180, stop_at_goal=True
                     ),
                     Hold(node, '梯形高地停留', T, 20.5, deadline=180),
                 ]
             ),
             mission(
                 '第3次补给', [
-                    CrossTerrainSequence(node, '梯形下坡', T_RAMP_TOP, T_ENTRY, deadline=180, heading=math.atan2(1.7, 1.4)),
+                    CrossTerrainSequence(node, '梯形下坡', T, T_ENTRY, deadline=180, keep_heading=True),
                     Navigate(node, '返回补给3', S, deadline=180),
                     Hold(node, '补给3', S, 5.5, earliest=120, deadline=180, supply=True),
                 ]
             ),
             mission('堡垒任务', [
                 fortress_leg,
-                Hold(node, '堡垒旋转停留', F, 20.5, earliest=180, spin=90),
+                Hold(node, '堡垒旋转停留', F, 20.5, earliest=180, spin=node.spin_wz),
             ]),
             mission(
                 '最后补给', [

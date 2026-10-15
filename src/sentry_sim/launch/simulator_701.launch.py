@@ -128,7 +128,7 @@ def generate_launch_description() -> LaunchDescription:
         package='sentry_decision_sys',
         executable='sentry_decision_node',
         name='sentry_decision_node',
-        parameters=[decision_params, {'use_sim_time': True}],
+        parameters=[decision_params, {'use_sim_time': True, 'sim_mode': True}],
         output='both',
     )
     simulator = Node(

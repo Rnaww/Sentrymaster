@@ -1,7 +1,7 @@
 import math
 
 # 区域中心沿用 diagram；停留检测半径与主分支使用相同 map 坐标。
-POINTS = {'supply': (15.45, 1.95), 'central': (8.85, 10.05), 'trapezoid': (3.35, 4.00), 'fortress': (8.95, 2.55)}
+POINTS = {'supply': (15.45, 1.95), 'central': (8.85, 10.05), 'trapezoid': (2.5, 3.0), 'fortress': (8.95, 2.55)}
 
 
 class Scoring:
