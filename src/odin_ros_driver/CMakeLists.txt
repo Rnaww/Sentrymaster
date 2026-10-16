@@ -260,6 +260,13 @@ elseif(ROS_VERSION STREQUAL "ROS2")
         usb-1.0
     )
     
+    # Prefer the detected system libusb over older copies bundled with MVS.
+    set_target_properties(host_sdk_sample PROPERTIES
+        BUILD_RPATH "${LIBUSB_LIBRARY_DIRS}"
+        INSTALL_RPATH "${LIBUSB_LIBRARY_DIRS}"
+        LINK_FLAGS "-Wl,--disable-new-dtags"
+    )
+
     # Add ROS2 dependencies
     ament_target_dependencies(host_sdk_sample
         rclcpp 

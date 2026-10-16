@@ -30,6 +30,7 @@ Odin 与 UART 的启动项仍按迁移前配置保留注释，接硬件后在现
 ## 必要的适配
 
 - 安装 Kilted 的 Nav2、ros_gz、py_trees、PCL 及 OMPL 等依赖；修正 package.xml 中失效的 ROS1、Classic Gazebo 依赖，并补充实际使用的依赖。
+- Odin 主驱动设置基于 pkg-config 检测目录的运行时库搜索路径，解决海康 MVS 的旧 libusb 抢先加载、缺少 `libusb_interrupt_event_handler` 导致启动退出的问题。只修改该可执行文件的库加载设置，保留 MVS 安装及环境。
 - Nav2 规划插件改用带取消检查回调的接口，按 Kilted 的分类异常头文件编译；行为树使用 BehaviorTree.CPP 4 格式。
 - 配置新版进度检查器参数，保留当前桥接节点使用的 Twist：`controller_server.enable_stamped_cmd_vel: false`。只启动当前使用的 NavigateToPose 导航器，内置 BT 插件由 Nav2 自动加载。
 - Gazebo 使用官方 `ros_gz_sim/gz_server.launch.py` 原生服务器、`create` 和 `ros_gz_bridge`。资源通过包安装位置与 `GZ_SIM_RESOURCE_PATH`、`GZ_SIM_SYSTEM_PLUGIN_PATH` 获取。
@@ -44,3 +45,5 @@ Odin 与 UART 的启动项仍按迁移前配置保留注释，接硬件后在现
 公共检查日志位于 `/home/blue/sentry-kilted-migration-20261016/`，包括编译、静态检查、MINCO 边界/坐标/取消回调、自由落体物理对照、GUI 与 RViz 启动退出检查。原生物体与平面运动接口物体的自由落体实测加速度均为约 -9.81 m/s²，接口不额外施加重力。原代码已有的 CMake 弃用及编译警告保留，没有为迁移进行无关格式改写。
 
 版本依据：[Nav2 Kilted 迁移说明](https://docs.nav2.org/rolling/configuration_and_development/migration_guides/jazzy/Jazzy/)、[Gazebo 与 ROS 配套版本](https://gazebosim.org/docs/ionic/ros_installation/)、[Classic 到 ros_gz 的迁移说明](https://gazebosim.org/docs/all/migrating_gazebo_classic_ros2_packages/)。
+
+Odin 主驱动另在两套工作空间的普通交互环境下实际启动检查通过：USB SDK 初始化、设备热插拔监听、里程计/点云/IMU 发布者注册及正常退出均通过。目标机当前没有 `2207:0019` Odin 设备，因此收到的数据为零，尚未验证实物取流。`senddepth: 0` 与 `sendreprojection: 0` 下，两个辅助节点按配置正常退出。结果与完整日志位于各自 `stress_results/kilted_odin_launch_fixed/`；两套工作空间的 12 个 C++ 可执行文件也通过 `ldd -r` 重定位符号检查。
