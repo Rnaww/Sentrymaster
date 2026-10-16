@@ -11,7 +11,8 @@ class SentryMincoPlanner : public nav2_core::GlobalPlanner{
 public:
     void configure(const rclcpp_lifecycle::LifecycleNode::WeakPtr &parent, std::string name,
         std::shared_ptr<tf2_ros::Buffer> tf, std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros) override{
-        node = parent.lock();
+        auto node = parent.lock();
+        this->parent = parent;
         std::vector<rclcpp::Parameter> parameters;
         std::string prefix = name + ".";
         for (auto &entry : node->get_node_parameters_interface()->get_parameter_overrides()){
@@ -58,6 +59,9 @@ public:
     nav_msgs::msg::Path createPlan(
         const geometry_msgs::msg::PoseStamped &start, const geometry_msgs::msg::PoseStamped &goal,
         std::function<bool()> cancel_checker) override{
+        auto node = parent.lock();
+        if (!node)
+            throw nav2_core::PlannerException("Planner node is unavailable");
         if (cancel_checker())
             throw nav2_core::PlannerCancelled("Planning canceled");
         Eigen::Vector3d a(start.pose.position.x, start.pose.position.y, 0.05);
@@ -112,7 +116,7 @@ public:
     }
 
 private:
-    rclcpp_lifecycle::LifecycleNode::SharedPtr node;
+    rclcpp_lifecycle::LifecycleNode::WeakPtr parent;
     rclcpp::Node::SharedPtr core_node;
     std::shared_ptr<PlanningCore> core;
     std::shared_ptr<TerrainSpeed> terrain_speed;
