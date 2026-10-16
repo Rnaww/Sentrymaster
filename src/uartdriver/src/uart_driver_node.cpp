@@ -5,6 +5,12 @@ UARTDriverNode::UARTDriverNode(std::string name) : Node(name){
     info_log(name, "has been built!");
 }
 
+UARTDriverNode::~UARTDriverNode(){
+    if (read_thread.joinable()){
+        read_thread.join();
+    }
+}
+
 void UARTDriverNode::init_node(){
     // 初始化串口
     declare_parameter("serial_number", "");
@@ -72,7 +78,8 @@ void UARTDriverNode::read_from_port() {
                 continue;
             }
 
-            serial_port->read(buffer, 1);
+            if (serial_port->read(buffer, 1) != 1)
+                continue;
             if (buffer[0] == serial_info_start) {
                 read_data_size = 1;
                 serial_port->read(buffer + 1, 1);
@@ -82,7 +89,7 @@ void UARTDriverNode::read_from_port() {
                     read_data_size++;
                     bool have_convert = false;
 
-                    while ((have_convert || read_end[0] != serial_info_end) && read_data_size < read_buffer_size) {
+                    while (rclcpp::ok() && (have_convert || read_end[0] != serial_info_end) && read_data_size < read_buffer_size) {
                         have_convert = false;
                         ++read_end;
                         serial_port->read(read_end, 1);

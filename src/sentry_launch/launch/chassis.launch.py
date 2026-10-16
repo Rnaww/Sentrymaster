@@ -38,7 +38,8 @@ def generate_launch_description():
                 'launch',
                 'odin1_ros2.launch.py'
             ])
-        ])
+        ]),
+        launch_arguments={'rviz': 'false'}.items(),
     )
 
     robot_description = Command(
@@ -89,9 +90,9 @@ def generate_launch_description():
         # 机器人固定坐标变换发布节点
         robot_state_publisher,
         # USB驱动
-        # uart_driver,
+        uart_driver,
         # Odin1驱动
-        # odin1,
+        odin1,
         # 导航节点
         odin_odometry,
         sentry_planner,

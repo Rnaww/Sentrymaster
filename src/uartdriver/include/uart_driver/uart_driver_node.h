@@ -23,4 +23,5 @@ private:
 
 public:
     UARTDriverNode(std::string name);
+    ~UARTDriverNode();
 };
