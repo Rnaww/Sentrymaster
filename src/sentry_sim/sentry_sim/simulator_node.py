@@ -335,7 +335,7 @@ class SimulatorNode(Node):
             joints.position = [0.0] * len(joints.name)
             self.joint_puber.publish(joints)
         referee = RefereeData()
-        referee.game_time = 0 if self.start_time is None else max(0, int(math.ceil(300 - self.elapsed)))
+        referee.game_time = 0 if self.start_time is None else max(120, int(math.ceil(420 - self.elapsed)))
         referee.sentry_posture = self.posture
         self.referee_puber.publish(referee)
         chassis = ChassisData()
