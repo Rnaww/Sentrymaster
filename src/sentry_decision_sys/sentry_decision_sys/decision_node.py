@@ -105,7 +105,7 @@ class DecisionNode(Node):
         return (
             'referee' in self.inputs
             and 'odom' in self.inputs
-            and self.inputs['referee'].game_time > 0
+            and 120 < self.inputs['referee'].game_time <= 420
             and now - self.recv_times['referee'] < 1
             and now - self.recv_times['odom'] < 0.5
         )
@@ -113,7 +113,8 @@ class DecisionNode(Node):
     def referee_callback(self, msg : RefereeData) -> None:
         self.inputs['referee'] = msg
         self.recv_times['referee'] = self.time_now()
-        self.elapsed = 300 - msg.game_time
+        # v1.4：比赛五分钟对应 420→120，裁判终止后为 0。
+        self.elapsed = max(0, min(300, 420 - msg.game_time))
         if msg.sentry_posture != self.actual_posture:
             self.last_posture_change = self.time_now()
             self.actual_posture = msg.sentry_posture

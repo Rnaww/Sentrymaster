@@ -42,19 +42,6 @@ class Stop(py_trees.behaviour.Behaviour):
         return py_trees.common.Status.RUNNING
 
 
-class FinishSpin(Stop):
-    def __init__(self, node, missions) -> None:
-        super().__init__(node)
-        self.name = '任务结束后等待比赛结束'
-        self.missions = missions
-
-    def update(self) -> py_trees.common.Status:
-        status = super().update()
-        if all(task.status == py_trees.common.Status.SUCCESS for task in self.missions):
-            self.node.wz = self.node.spin_wz
-        return status
-
-
 class Navigate(py_trees.behaviour.Behaviour):
     def __init__(
         self,
@@ -358,7 +345,6 @@ def create_SentryMaster_tree(node) -> py_trees.composites.Selector:
             Stop(node),
         ],
     )
-    missions = []
 
     def mission(name: str, children: list) -> py_trees.decorators.FailureIsSuccess:
         # 整项任务失败后跳过，不能继续执行它的停留计分节点。
@@ -367,7 +353,6 @@ def create_SentryMaster_tree(node) -> py_trees.composites.Selector:
             memory=True,
             children=children,
         )
-        missions.append(task)
         return py_trees.decorators.FailureIsSuccess(name=name, child=task)
 
     fortress_leg = CrossTerrainSequence(node, '堡垒东侧上坡', F_ENTRY, F, reach_thresh=0.04, stop_at_goal=True)
@@ -468,7 +453,7 @@ def create_SentryMaster_tree(node) -> py_trees.composites.Selector:
                     Hold(node, '补给5', S, 5.5, earliest=240, supply=True),
                 ]
             ),
-            FinishSpin(node, missions),
+            Stop(node),
         ],
     )
     return py_trees.composites.Selector(
