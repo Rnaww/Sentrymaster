@@ -127,7 +127,7 @@ public:
         return distance;
     }
 
-    bool plan(Eigen::Vector3d start, Eigen::Vector3d goal, bool is_cross){
+    bool plan(Eigen::Vector3d start, Eigen::Vector3d goal, bool is_cross, const Eigen::Vector3d &start_velocity){
         local_optimizer->clear_traj();
         fallback_route.clear();
         search_route.clear();
@@ -230,7 +230,7 @@ public:
                 }
             }
         }
-        if (!local_optimizer->get_trajectory(route, SFCs, global_path_planner->esdf))
+        if (!local_optimizer->get_trajectory(route, SFCs, global_path_planner->esdf, start_velocity))
             return useFallback(route, "MINCO failed");
         double route_cost = 0;
         for (size_t i = 1; i < route.size(); i++){

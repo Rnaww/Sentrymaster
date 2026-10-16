@@ -24,12 +24,15 @@ LocalOptimizer::LocalOptimizer(rclcpp::Node *node){
     mapBound = node->get_parameter("MapBound").as_double_array();
 }
 
-bool LocalOptimizer::get_trajectory(const std::vector<Eigen::Vector3d> &path, const std::vector<Eigen::MatrixX4d> &SFCs, double *esdf){
+bool LocalOptimizer::get_trajectory(const std::vector<Eigen::Vector3d> &path, const std::vector<Eigen::MatrixX4d> &SFCs,
+    double *esdf, const Eigen::Vector3d &start_velocity){
     traj.clear();
     Eigen::Matrix3d iniState;
     Eigen::Matrix3d finState;
-    // iniState << path.front(), last_v, Eigen::Vector3d::Zero();
-    iniState << path.front(), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero();
+    if (!start_velocity.allFinite())
+        return false;
+    // 起始速度使用地图系实测值；加速度无可靠估计，仍按零处理。
+    iniState << path.front(), start_velocity, Eigen::Vector3d::Zero();
     finState << path.back(), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero();
     
     gcopter::GCOPTER_PolytopeSFC gcopter;

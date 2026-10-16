@@ -19,7 +19,8 @@ public:
     LocalOptimizer(rclcpp::Node *node);
 
     // 得到轨迹
-    bool get_trajectory(const std::vector<Eigen::Vector3d> &path, const std::vector<Eigen::MatrixX4d> &SFCs, double *esdf);
+    bool get_trajectory(const std::vector<Eigen::Vector3d> &path, const std::vector<Eigen::MatrixX4d> &SFCs,
+        double *esdf, const Eigen::Vector3d &start_velocity);
     bool has_traj();
     void clear_traj();
 
