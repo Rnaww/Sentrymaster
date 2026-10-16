@@ -228,7 +228,7 @@ class SimulatorNode(Node):
         if norm > 4.5:
             vx, vy = vx * 4.5 / norm, vy * 4.5 / norm
         if self.physics == 'gazebo':
-            # 与旧 SimulatorBridge 一样：限幅后直接发送 Twist，由 planar_move 执行。
+            # 与旧 SimulatorBridge 一样：限幅后直接发送 Twist，由 Ionic 平面运动接口执行。
             self.vx, self.vy = vx, vy
         else:
             diff = math.hypot(vx - self.vx, vy - self.vy)
@@ -279,11 +279,9 @@ class SimulatorNode(Node):
         if self.physics == 'gazebo':
             v = self.gazebo_odom.twist.twist.linear
             w = self.gazebo_odom.twist.twist.angular
-            # planar_move 给出仅按 yaw 旋转的平面速度；还原 odom 后再按完整姿态转到车体。
-            c, s = math.cos(self.yaw), math.sin(self.yaw)
-            inverse_vehicle = (-vehicle_q[0], -vehicle_q[1], -vehicle_q[2], vehicle_q[3])
-            vehicle_v = rotate(inverse_vehicle, (c * v.x - s * v.y, s * v.x + c * v.y, 0.0))
-            vehicle_w = rotate(inverse_vehicle, (0.0, 0.0, w.z))
+            # Ionic OdometryPublisher 已按完整姿态发布车体系三维速度。
+            vehicle_v = (v.x, v.y, v.z)
+            vehicle_w = (w.x, w.y, w.z)
         else:
             vehicle_v = (cmd.linear.x, cmd.linear.y, 0.0)
             vehicle_w = (0.0, 0.0, self.wz)
