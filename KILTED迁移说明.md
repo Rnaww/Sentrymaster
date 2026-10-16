@@ -7,7 +7,7 @@
 | `/home/blue/SentryMaster2026` | `kilted-rna` | `7566625` |
 | `/home/blue/SentryMaster2026-nav2` | `kilted-nav2` | `749ea44` |
 
-两个目录均是独立 Git 仓库，不依赖原电脑的 worktree 路径。原电脑的 Humble 分支保持原样；同步的 Kilted 工作目录分别为 `/home/wendyy/SentryMaster2026-kilted` 和 `/home/wendyy/SentryMaster2026-nav2-kilted`，原电脑仍是 Humble 环境，Kilted 目录用于编辑、保存与部署，不复用本机的 Humble 编译产物。迁移基线及完整历史另存于两台电脑的 `sentry-kilted-migration-20261016/`。迁移提交仅保存在本地，没有推送远程。`sentry-kilted-migration-20261016/` 只是工作空间外的备份与检查资料目录，不是 ROS 包，也不需要放进 `src` 或随程序启动。
+两个目录均是独立 Git 仓库，不依赖原电脑的 worktree 路径。原电脑保留 Humble 的两套框架分支，共用决策修复同步到四个分支；同步的 Kilted 工作目录分别为 `/home/wendyy/SentryMaster2026-kilted` 和 `/home/wendyy/SentryMaster2026-nav2-kilted`，原电脑仍是 Humble 环境，Kilted 目录用于编辑、保存与部署，不复用本机的 Humble 编译产物。迁移基线及完整历史另存于两台电脑的 `sentry-kilted-migration-20261016/`。代码仓库为 https://github.com/Rnaww/Sentrymaster.git ，默认分支 `kilted-rna`；另外保留 `kilted-nav2`、`sentrymaster-rna` 和 `nav2-experiment`。`sentry-kilted-migration-20261016/` 只是工作空间外的备份与检查资料目录，不是 ROS 包，也不需要放进 `src` 或随程序启动。
 
 ## 使用
 
@@ -41,7 +41,7 @@ cd ~/SentryMaster2026/scripts
 
 ## 检查记录
 
-完整结果和当前轨迹见 `导航框架对比.md`。每个工作空间的 `stress_results/kilted_native_verified_20261016/` 保存最终原生服务器的整场结果与源码摘要，`stress_results/kilted_native_record_verified_20261016/` 保存实际 rosbag、CSV 和通信检查结果，`stress_results/kilted_real_launch/` 保存无硬件实车模式检查。生成物按原有 gitignore 排除。
+完整结果和当前轨迹见 `导航框架对比.md`。每个工作空间的 `stress_results/zero_wz_verified_20261017/` 保存当前禁转修复的整场结果、原始内录和角速度核对，`stress_results/kilted_native_record_verified_20261016/` 保存实际 rosbag、CSV 和通信检查结果，`stress_results/kilted_real_launch/` 保存无硬件实车模式检查。生成物按原有 gitignore 排除。
 
 公共检查日志位于 `/home/blue/sentry-kilted-migration-20261016/`，包括编译、静态检查、MINCO 边界/坐标/取消回调、自由落体物理对照、GUI 与 RViz 启动退出检查。原生物体与平面运动接口物体的自由落体实测加速度均为约 -9.81 m/s²，接口不额外施加重力。原代码已有的 CMake 弃用及编译警告保留，没有为迁移进行无关格式改写。
 
