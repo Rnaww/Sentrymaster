@@ -7,7 +7,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.substitutions import FindPackageShare
 from launch_ros.actions import Node
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_share_directory, get_package_prefix
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -23,22 +23,19 @@ def generate_launch_description() -> LaunchDescription:
     gazebo_server = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             [PathJoinSubstitution([
-                FindPackageShare('gazebo_ros'),
+                FindPackageShare('ros_gz_sim'),
                 'launch',
-                'gzserver.launch.py',
+                'gz_server.launch.py',
             ])]
         ),
         condition=IfCondition(gazebo),
         launch_arguments={
-            'world': os.path.join(sim_share, 'worlds', '701_navigation.world'),
-            'params_file': os.path.join(sim_share, 'config', 'gazebo.yaml'),
-            'physics': 'ode',
-            'record': 'false',
+            'world_sdf_file': os.path.join(sim_share, 'worlds', '701_navigation.world'),
+            'verbosity_level': '2',
         }.items(),
     )
-    # 沿用旧工作空间直接启动 gzclient 的写法。
     gazebo_client = ExecuteProcess(
-        cmd=['gzclient'],
+        cmd=['gz', 'sim', '-g', '--gui-config', os.path.join(sim_share, 'config', 'gz_gui.config')],
         condition=IfCondition(
             PythonExpression(
                 [
@@ -53,11 +50,11 @@ def generate_launch_description() -> LaunchDescription:
         output='screen',
     )
     spawn_robot = Node(
-        package='gazebo_ros',
-        executable='spawn_entity.py',
+        package='ros_gz_sim',
+        executable='create',
         condition=IfCondition(gazebo),
         arguments=[
-            '-entity',
+            '-name',
             'sentry_robot',
             '-file',
             os.path.join(sim_share, 'robots', 'sentry.urdf'),
@@ -68,6 +65,13 @@ def generate_launch_description() -> LaunchDescription:
             '-z',
             '0.6',
         ],
+        output='screen',
+    )
+    gazebo_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        condition=IfCondition(gazebo),
+        parameters=[{'config_file': os.path.join(sim_share, 'config', 'gz_bridge.yaml')}],
         output='screen',
     )
     # 保留实车 Odin 安装 TF，车体、车轮和云台模型沿用旧工作空间。
@@ -182,13 +186,18 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument('gui', default_value='false'),
             DeclareLaunchArgument('rviz', default_value='false'),
             SetEnvironmentVariable(
-                'GAZEBO_MODEL_PATH',
-                os.path.join(sim_share, 'models') + ':' + os.environ.get('GAZEBO_MODEL_PATH', '')
+                'GZ_SIM_RESOURCE_PATH',
+                os.path.join(sim_share, 'models') + ':' + os.environ.get('GZ_SIM_RESOURCE_PATH', '')
             ),
-            SetEnvironmentVariable('GAZEBO_MODEL_DATABASE_URI', ''),
+            SetEnvironmentVariable(
+                'GZ_SIM_SYSTEM_PLUGIN_PATH',
+                os.path.join(get_package_prefix('sentry_gazebo'), 'lib') + ':' +
+                os.environ.get('GZ_SIM_SYSTEM_PLUGIN_PATH', '')
+            ),
             GroupAction(actions=[gazebo_server]),
             gazebo_client,
             spawn_robot,
+            gazebo_bridge,
             robot_state_publisher,
             map_to_odom,
             odin_odometry,

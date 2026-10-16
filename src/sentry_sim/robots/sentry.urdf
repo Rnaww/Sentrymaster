@@ -4,14 +4,14 @@
     Reference model copied from sentry-chassis-2026. Chassis dimensions follow PolarBear's
     rm25_example_robot (used by pb2025_sentry_nav): 75.8 mm radius,
     45.2 mm width, 0.4 kg wheel mass, and low-friction wheel contact.
-    Gazebo Classic retains its planar-move plugin so the existing ROS API
-    remains unchanged.
+    Gazebo Ionic uses sentry_gazebo for the planar command interface;
+    collision geometry and visual assets are retained.
   -->
   <link name="sim_chassis_link">
     <!--
       Offline visual assets copied from PolarBear's rm25_example_robot
       (rmoss_gz_resources at b5c759f).  The collision geometry below remains
-      the existing stable Classic-Gazebo chassis body.
+      the existing chassis body.
     -->
     <visual name="reference_chassis_visual">
       <origin xyz="0 0 -0.2242" rpy="0 0 0"/>
@@ -183,32 +183,18 @@
   </gazebo>
 
   <gazebo>
-    <plugin filename="libgazebo_ros_joint_state_publisher.so" name="sentry_gimbal_state">
-      <ros>
-        <namespace>/sentry_robot</namespace>
-        <remapping>joint_states:=/joint_states</remapping>
-      </ros>
-      <update_rate>150</update_rate>
-      <joint_name>gimbal_yaw_joint</joint_name>
-      <!-- Publish every movable joint so RViz can locate all four wheel links. -->
-      <joint_name>front_left_wheel_joint</joint_name>
-      <joint_name>front_right_wheel_joint</joint_name>
-      <joint_name>rear_left_wheel_joint</joint_name>
-      <joint_name>rear_right_wheel_joint</joint_name>
+    <plugin filename="libSentryPlanarMove.so" name="sentry_gazebo::PlanarMove">
+      <topic>/sentry_robot/cmd_vel</topic>
     </plugin>
-    <plugin filename="libgazebo_ros_planar_move.so" name="sentry_planar_move">
-      <ros>
-        <namespace>/sentry_robot</namespace>
-      </ros>
-      <command_topic>cmd_vel</command_topic>
-      <odometry_topic>odom</odometry_topic>
-      <odometry_frame>odom</odometry_frame>
-      <robot_base_frame>vehicle</robot_base_frame>
-      <publish_odom>true</publish_odom>
-      <publish_odom_tf>false</publish_odom_tf>
-      <publish_tf>false</publish_tf>
-      <update_rate>150</update_rate>
-      <publish_rate>150</publish_rate>
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>map</odom_frame>
+      <robot_base_frame>sim_chassis_link</robot_base_frame>
+      <odom_topic>/sentry_robot/odom</odom_topic>
+      <odom_publish_frequency>100</odom_publish_frequency>
+      <dimensions>3</dimensions>
+    </plugin>
+    <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
+      <topic>/sentry_robot/joint_states</topic>
     </plugin>
   </gazebo>
 </robot>

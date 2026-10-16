@@ -3,7 +3,7 @@
 #include <atomic>
 #include <mutex>
 #include <nav2_core/global_planner.hpp>
-#include <nav2_core/exceptions.hpp>
+#include <nav2_core/planner_exceptions.hpp>
 #include <pluginlib/class_list_macros.hpp>
 
 // 用 Nav2 插件调用相同的旧规划算法。
@@ -56,7 +56,10 @@ public:
     }
 
     nav_msgs::msg::Path createPlan(
-        const geometry_msgs::msg::PoseStamped &start, const geometry_msgs::msg::PoseStamped &goal) override{
+        const geometry_msgs::msg::PoseStamped &start, const geometry_msgs::msg::PoseStamped &goal,
+        std::function<bool()> cancel_checker) override{
+        if (cancel_checker())
+            throw nav2_core::PlannerCancelled("Planning canceled");
         Eigen::Vector3d a(start.pose.position.x, start.pose.position.y, 0.05);
         Eigen::Vector3d b(goal.pose.position.x, goal.pose.position.y, 0.05);
         OdomMsg current_odom;
@@ -97,6 +100,8 @@ public:
         }
         if (!core->plan(a, b, is_cross, start_velocity))
             throw nav2_core::PlannerException(core->last_error);
+        if (cancel_checker())
+            throw nav2_core::PlannerCancelled("Planning canceled");
         auto path = core->getPath(node->now());
         double length;
         double seconds = terrain_speed->estimateTime(path, length);

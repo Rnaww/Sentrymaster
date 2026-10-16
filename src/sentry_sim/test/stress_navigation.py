@@ -57,7 +57,7 @@ def main() -> None:
         'started': time.time()
     }
     (directory / 'manifest.json').write_text(json.dumps(metadata, indent=2))
-    env = dict(os.environ, ROS_DOMAIN_ID=str(args.domain), GAZEBO_MASTER_URI=f'http://127.0.0.1:{args.port}')
+    env = dict(os.environ, ROS_DOMAIN_ID=str(args.domain), GZ_PARTITION=f'sentry_{args.domain}_{args.port}')
     results = []
     for number in range(1, args.count + 1):
         changed = [

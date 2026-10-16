@@ -5,7 +5,6 @@
   <description>Optional sentry topic and telemetry recording</description>
   <maintainer email="user@example.com">user</maintainer>
   <license>Apache-2.0</license>
-  <buildtool_depend>ament_python</buildtool_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>rosbag2</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>

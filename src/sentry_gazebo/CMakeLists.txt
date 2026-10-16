@@ -1,0 +1,17 @@
+cmake_minimum_required(VERSION 3.8)
+project(sentry_gazebo)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+find_package(ament_cmake REQUIRED)
+find_package(gz_sim_vendor REQUIRED)
+find_package(gz_plugin_vendor REQUIRED)
+find_package(gz_transport_vendor REQUIRED)
+find_package(gz-sim9 REQUIRED)
+find_package(gz-plugin3 REQUIRED COMPONENTS register)
+find_package(gz-transport14 REQUIRED)
+
+add_library(SentryPlanarMove SHARED src/planar_move.cpp)
+target_link_libraries(SentryPlanarMove gz-sim9::gz-sim9 gz-plugin3::register gz-transport14::gz-transport14)
+install(TARGETS SentryPlanarMove LIBRARY DESTINATION lib)
+ament_package()

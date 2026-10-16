@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>sentry_gazebo</name>
+  <version>0.0.0</version>
+  <description>Gazebo Ionic interface for the sentry chassis simulation</description>
+  <maintainer email="user@example.com">user</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>gz_sim_vendor</depend>
+  <depend>gz_plugin_vendor</depend>
+  <depend>gz_transport_vendor</depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>
