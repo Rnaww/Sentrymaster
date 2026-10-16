@@ -11,9 +11,9 @@ F = (8.95, 2.55)
 # 控制用的平地对正点和通道出口，不是新增计分任务。
 C_ENTRY = (15.15, 9.0)
 C_RAMP_TOP = (13.3, 9.0)
-F_ENTRY = (10.3, 2.5)
+F_ENTRY = (10.6, 2.5)
 T_ENTRY = (4.8, 5.8)
-ROUGH_EXIT = (15.45, 7.3)
+ROUGH_EXIT = (15.45, 7.5)
 # diagram 的第五次补给离区参考点，不是裁判任务点。
 R = (10.05, 3.85)
 
@@ -107,21 +107,15 @@ class Navigate(py_trees.behaviour.Behaviour):
         node.is_cross = is_cross
         node.posture = 3
         node.wz = self.spin
+        # 入口已完成对正；确认进入地形并完整离开前保持禁转。
         if heading is not None:
             if node.terrain_no_spin:
                 self.terrain_entered = True
-            if not node.terrain_no_spin and (not self.keep_heading or self.terrain_entered):
+            if self.terrain_entered and not node.terrain_no_spin:
                 heading = None
-            else:
-                heading = node.path_heading(point, heading)
-                # 目标附近的纵向回调允许倒车修正，不能为了几厘米误差原地转 180 度。
-                if math.dist((node.x, node.y), point) < 0.2 and math.cos(heading - node.yaw) < 0:
-                    heading = math.atan2(math.sin(heading + math.pi), math.cos(heading + math.pi))
         node.aim_chassis_yaw = heading
         node.aligning = False
         node.move_v = speed
-        if heading is not None and abs(math.atan2(math.sin(heading - node.yaw), math.cos(heading - node.yaw))) > 0.25:
-            node.move_v = 0
         if math.dist((node.x, node.y), point
                      ) <= self.reach_thresh and (not self.stop_at_goal or node.linear_speed < 0.05) and not escaping:
             self.complete = True
@@ -162,7 +156,7 @@ class AlignChassis(py_trees.behaviour.Behaviour):
         self.travel_time = now - self.start_time
         node.goal = self.point
         node.move_v = 0
-        node.wz = node.spin_wz
+        node.wz = 0
         node.posture = 3
         node.aim_chassis_yaw = None
         node.aligning = False

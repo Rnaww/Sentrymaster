@@ -190,9 +190,14 @@ class DecisionNode(Node):
 
     def spin_command(self, requested) -> float:
         if self.aim_chassis_yaw is not None:
+            # 入口已完成对正；跨越期间不再转头，也不因路径切向改变停车。
+            if not self.aligning:
+                return 0
+            if not self.terrain.flat(self.x, self.y):
+                return 0
             error = math.atan2(math.sin(self.aim_chassis_yaw - self.yaw), math.cos(self.aim_chassis_yaw - self.yaw))
-            # 对正和跨越纠偏不属于持续小陀螺；右手系，逆时针为正。
-            limit = 60 if self.aligning else 15
+            # 停车对正遵循右手系，逆时针为正。
+            limit = 60
             return max(-limit, min(limit, math.degrees(2 * error)))
         return 0 if self.disable_spin or self.terrain_no_spin else requested
 
